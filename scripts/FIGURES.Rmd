@@ -1,0 +1,1533 @@
+---
+title: "10x PAH BMP9 - FIGURES"
+author: "Yvon Mbouamboua<BR>mbouamboua@ipmc.cnrs.fr"
+date: 'Compiled: `r Sys.Date()`'
+output:
+  rmdformats::readthedown:
+    self-contained: yes
+    highlight: haddock
+    css: styles.css
+    theme: flatly
+    number_sections: yes
+    thumbnails: no
+  html_notebook:
+    theme: cerulean 
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+---
+
+
+# Setting parameters
+
+```{r setup, include=T, warning=F}
+
+invisible(gc())
+options(future.globals.maxSize = 80000 * 1024^2)
+ws <- "/data/data_mbouamboua/projects/10x_htap_bmp9"
+outdir <-  paste(ws, "FIGURES", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+source("/data/data_mbouamboua/apps/functions/utilities.R")
+set.seed(1337L)
+
+```
+
+
+# Define functions
+
+
+```{r}
+
+custom_violin_plot <- function(object, 
+                      group.by, 
+                      gene.signature, 
+                      paired = FALSE,
+                      method = "wilcox.test",
+                      label = "p.signif",
+                      color = NULL,
+                      name = NULL,
+                      comparisons,
+                      outdir){
+  
+  require(Seurat)
+  require(ggplot2)
+  
+  if ("Seurat" != class(object)[1]) {
+    stop("object should be of class Seurat")
+  }
+  
+  if (!missing(x = group.by)) {
+    object <- SetIdent(object = object, value = group.by)
+  }
+  
+  #check if integer or already normalized, normalize if needed
+  mat = GetAssayData(object, slot = 'data')
+  if ((sum(mat %% 1 == 0) == length(mat)) == T) {
+    object %<>% NormalizeData()
+  } else {
+    object[['RNA']]@data = mat
+  }
+  
+  plot <- function(signature, y.max = 5){
+    p <- VlnPlot(object = object, 
+                 group.by = group.by, 
+                 assay = "RNA", 
+                 slot = "data",
+                 features = signature,
+                 cols = color,
+                 pt.size = 0, 
+                 y.max = y.max)
+    
+p <- p + theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+                    text =  element_text(size = 8, family = "Helvetica"), 
+                    legend.position = "none",
+                    panel.grid.major = ggplot2::element_blank(), 
+                    panel.grid.minor = ggplot2::element_blank(),
+                    panel.background = ggplot2::element_blank(),
+                    axis.line =   element_line(colour = "black"), 
+                    axis.ticks =  element_line(colour = "black", size = 5/12), 
+                    axis.text.x = element_blank(),
+                    axis.ticks.x = element_blank(),
+                    axis.text.y = element_text(color = "black"),
+                    axis.title =  element_text(face = "plain"), 
+                    axis.title.x = element_blank(),
+                    axis.text =   element_text(size = 8)
+    ) 
+    
+p <- p + stat_compare_means(comparisons = comparisons, 
+                            paired = paired,
+                            method = method,
+                            label = label,
+                            # vjust = 0,
+                            # tip.length = 0.03,
+                            # bracket.size = 0.3,
+                            #step.increase = 0,
+                            size = 2)
+
+  }
+  
+  plot.list <- list()
+  y.max.list <- list()
+  gene.signature <- factor(unique(gene.signature))
+  for (gene in gene.signature) {
+    plot.list[[gene]] <- plot(gene)
+    y.max.list[[gene]] <- max(plot.list[[gene]]$data[[gene]])
+    plot.list[[gene]] <- plot(gene, y.max = (y.max.list[[gene]]+0.2) )
+    print(plot.list[[gene]])
+    gene <- paste0(gene, "_", name, ".pdf", sep = "")
+    ggsave(paste(outdir, gene, sep = "/"), width = 2, height = 2.5, useDingbats = FALSE)
+  }
+}
+
+
+# Adapted from https://erikaduan.github.io/posts/2021-01-02-volcano-plots-with-ggplot2/
+
+volcano_plot <- function(DE, query_genes = NULL){
+  
+  DE$cluster <- factor(gsub("_", " ", DE$cluster))
+  clusters <- unique(DE$cluster)
+  volcano_list <- list()
+  
+  for(i in 1:length(clusters)){
+    cluster <- clusters[i]
+    DE <- data.frame(DE[DE$cluster == cluster,])
+    
+    # Create new categorical column
+    DE <- DE %>%
+      mutate(Significant = case_when(avg_log2FC > 0 & p_val_adj <= 0.05 ~ "up",
+                                   avg_log2FC < 0 & p_val_adj <= 0.05 ~ "down",
+                                   TRUE ~ "ns"))
+    # Obtain Significant counts
+    DE %>% dplyr::count(Significant)
+    
+    # Check Significant categories
+    DE %>%
+      dplyr::distinct(Significant) %>%
+      dplyr::pull()  
+    
+    # Add colour, size and alpha (transparency) to volcano plot
+    cols <- c("up" = "#C70039", "down" = "#1C1C90", "ns" = "grey60") 
+    sizes <- c("up" = 0.8, "down" = 0.8, "ns" = 0.5) 
+    alphas <- c("up" = 1, "down" = 1, "ns" = 0.5)
+    
+    sig_genes <- subset(DE, p_val_adj <= 0.05)
+    up_genes <- subset(sig_genes, avg_log2FC > 0)
+    up_to_plot <- subset(up_genes, gene %in% query_genes)
+    down_genes <- subset(sig_genes, avg_log2FC < 0)
+    down_to_plot <- subset(down_genes, gene %in% query_genes)
+    genes_to_plot <- subset(sig_genes, gene %in% query_genes)
+    
+    # Identify xlim() values
+    min_avg_log2FC <- round(min(DE$avg_log2FC), digits = 0)
+    max_avg_log2FC <- round(max(DE$avg_log2FC), digits = 0)
+    max <- max(abs(min_avg_log2FC), abs(max_avg_log2FC))
+
+    # Plot
+    volcano_list[[i]] <- DE %>%
+      ggplot(aes(x = avg_log2FC, y = -log10(p_val_adj),fill = Significant,    
+                 size = Significant, alpha = Significant)) + 
+      theme_bw() +
+      geom_point(aes(colour = Significant), alpha = 0.2, shape = 16, size = 0.5) + 
+      geom_point(data = up_genes, shape = 21, size = 0.8, fill = "#C70039", colour = "#C70039") + 
+      geom_point(data = down_genes, shape = 21, size = 0.8, fill = "#1C1C90", colour = "#1C1C90") +  
+      geom_hline(yintercept = -log10(0.05),linetype = "dashed", colour = "black", size = 0.1) + 
+      geom_vline(xintercept = c(log2(0.5), log2(2)),linetype = "dashed",colour = "black", size = 0.1) +
+      scale_fill_manual(values = cols) + # Modify point colour
+      scale_size_manual(values = sizes) + # Modify point size
+      scale_alpha_manual(values = alphas) +
+      geom_text_repel(data = up_genes, aes(label=gene), colour = "#C70039", fontface = "italic",show.legend=F) +
+      geom_text_repel(data = down_genes, aes(label=gene), colour = "#1C1C90", fontface = "italic",show.legend=F) +
+      # geom_label_repel(data = up_to_plot, # Add labels last to appear as the top layer  
+      #                  aes(label = gene),force = 2, nudge_y = 1, fill = "white",
+      #                  segment.size = 0.01, colour = "#C70039", size = 2,fontface = "italic") +
+      # geom_label_repel(data = down_to_plot, aes(label = gene), force = 2, nudge_y = 1, fill = "white",
+      #                  segment.size = 0.01, colour = "#1C1C90", size = 2, fontface = "italic") +
+      scale_colour_manual(values = cols) +
+      xlim(c(-max, max)) + 
+      xlab(bquote(~'Average'~Log[2]~'FC (PAH/CTRL)')) +
+      ylab(bquote(~-Log[10]~'p-value adjusted')) +
+      theme(plot.title = element_text(hjust = 0.5, size = 8, family = "Helvetica", face = "italic"),
+            text = element_text(size = 6, family = "Helvetica"),
+            axis.title.x = element_text(size = 6),
+            axis.text.x = element_text(size = 5),
+            axis.title.y = element_text(size = 6),
+            axis.text.y = element_text(size = 5),
+            legend.title = element_text(face = "bold", size = 6), 
+            legend.text = element_text(size = 6),
+            legend.position = "none") +
+      ggtitle(paste(cluster))
+  }
+  
+  return(volcano_list)
+}
+
+
+
+custom_find_markers <- function(object,
+                                group_by,
+                                test_use = 'wilcox',
+                                only_pos = FALSE,
+                                min_pct = 0.25,
+                                min_diff_pct = -Inf,
+                                man_logfc_threshold = 0.25,
+                                clusters_to_exclude = c(),
+                                max_cells_per_ident = Inf,...) {
+  
+  if ("Seurat" != class(object)[1]) {
+    stop("object should be of class Seurat")
+  }
+  
+  # Set active ident
+  if (!missing(x = group_by)) {
+    object <- SetIdent(object = object, value = group_by)
+  }
+  
+  # check the arguments
+  if (!test_use %in% c("wilcox", "bimod", "t", "negbinom", "poisson", "LR","MAST"))
+    stop("Please select one of: wilcox, bimod, t, negbinom, poissoin, LR, or MAST as the test_use")
+
+  joined <- data.frame()
+  clusters_to_test <- sort(unique(object@active.ident))
+  clusters_to_test <- setdiff(clusters_to_test,clusters_to_exclude)
+  
+  for(i in 1:length(clusters_to_test)){
+    cluster <- clusters_to_test[i]
+    message("[", i, "/", length(clusters_to_test),
+            "] DE working on: ", cluster, " ...")
+    
+    # Run Seurat FindMarkers
+    markers <- Seurat::FindMarkers(object,
+                                   ident.1 = clusters_to_test[i], 
+                                   ident.2 = NULL, 
+                                   only.pos = only_pos, 
+                                   assay = "RNA", 
+                                   slot = "data",
+                                   test.use = test_use,
+                                   min.pct = min_pct,
+                                   min.diff.pct = min_diff_pct,
+                                   logfc.threshold = man_logfc_threshold,
+                                   max.cells.per.ident = max_cells_per_ident,...)
+    
+    # Joined result tables
+    markers$cluster <- replicate(nrow(markers),clusters_to_test[i])
+    markers$gene <- rownames(markers)
+    markers$test_use <- replicate(nrow(markers),paste0(test_use))
+    rownames(markers) <- c()
+    joined <- rbind(joined, markers)
+  }
+  return(joined)
+}
+
+
+```
+
+
+
+
+# Load data
+
+```{r }
+
+htap <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/output/v1/htap_10_clusters_without_cycling.rds")
+# Idents(htap) <- "sample"
+# htap[["condition"]]=""
+# htap@meta.data[htap@meta.data$sample %in% c("C685116", "C686518","C681725", "C676136", "C681086"), "condition"] <- "CTRL"
+# htap@meta.data[htap@meta.data$sample %in% c("C685116.BMP9","C686518.BMP9","C681725.BMP9","C676136.BMP9","C681086.BMP9"), "condition"] <- "CTRL+BMP9"
+# htap@meta.data[htap@meta.data$sample %in% c("H230", "H231", "H247","H248","H250"), "condition"] <- "PAH"
+# htap@meta.data[htap@meta.data$sample %in% c("H230.BMP9","H231.BMP9","H247.BMP9","H248.BMP9","H250.BMP9"), "condition"] <- "PAH+BMP9"
+invisible(gc())
+
+dir <- paste(outdir, "diapo", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+
+DimPlot(htap, group.by = "ALK1", label = T)
+ggsave(paste(dir, "umap_alk1.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+DimPlot(htap, group.by = "condition")
+ggsave(paste(dir, "umap_condition.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+DimPlot(htap, group.by = "sample", cols=dittoSeq::dittoColors()) 
+ggsave(paste(dir, "umap_sample.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+DimPlot(htap, group.by = "clusters", label = T)
+ggsave(paste(dir, "umap_clusters.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+DimPlot(htap, group.by = "seurat_clusters", label = T) + ggtitle("Merged datasets")
+ggsave(paste(dir, "umap_clusters.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE) 
+
+
+```
+
+# Cluster correlation
+
+```{r fig.width=6, fig.height=5, warning=FALSE}
+
+Idents(htap) <- "seurat_clusters"
+mnmat <- c()
+uniq <- unique(htap@active.ident)
+htap@meta.data$cluster <- htap@active.ident
+
+for(i in 1:length(uniq)){
+  mnmat <- cbind(mnmat, apply(as.matrix(htap@assays$integrated@data[, htap@meta.data$cluster==uniq[i]]), 1, mean))
+}
+colnames(mnmat) <- as.vector(unique(htap@active.ident))
+mat = cor(mnmat, method = "pearson")
+
+p <- ComplexHeatmap::pheatmap(mat, 
+                         cluster_rows=TRUE, 
+                         cluster_cols=TRUE, 
+                         fontsize = 8, 
+                         #main = "Cell type correlations", 
+                         name = "Pearson's \n correlation", 
+                         color=colorRampPalette(rev(RColorBrewer::brewer.pal(n=11, name="RdBu")))(100),
+                         clustering_method = "complete")
+print(p)
+
+pdf(paste(dir, "heatmap_cluster_correlation.pdf", sep = "/"), width = 6, height = 5, useDingbats = FALSE)
+print(p)
+dev.off()
+
+#saveRDS(object = htap, paste(out.dir, "rds/htap.rds", sep = "/"))
+
+```
+
+# FindAllMarkers
+
+```{r fig.width=10, fig.height=5}
+
+invisible(gc())
+htap <- filter_quality(obj = htap)
+markers <- custom_FindMarkers(object = htap, group_by = "seurat_clusters", test_use = "wilcox")
+write.table(markers, paste(dir, "seurat_clusters_markers.tsv", sep = "/"), sep = "\t", row.names = FALSE, quote = FALSE, col.names = TRUE)
+top <- markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+Idents(htap) <- "seurat_clusters"
+custom_DotPlot(seurat_object = htap, features = rev(top$gene), x_lab_rotate = T, flip_axes = F, base_size = 10, theme_bw = T)
+ggsave(paste(dir, "population_markers.png", sep = "/"), width = 10, height = 3)
+
+```
+
+
+
+# Figure 2A
+
+```{r}
+
+Idents(htap) <- "clusters"
+htap5 <- subset(htap, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+rm(htap)
+Idents(htap5) <- "condition"
+htap5 <- subset(htap5, idents = "CTRL", invert = F)
+
+cols <- setNames(c("#78C679","#41AB5D","#01736b","#739154","#a6d8f5"), c("C1", "C2", "C3", "C4", "C5"))
+p <- DimPlot(htap5, group.by = "clusters", label = T, label.size = 3, label.box = T, repel = F, cols = cols) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+
+pdf(paste(outdir, "umap_CTRL_5clusters.pdf", sep = "/"), width = 5, height = 5, useDingbats = FALSE)
+print(p)
+dev.off()
+
+```
+
+
+# ALK1 High
+## DE markers 
+
+
+```{r}
+
+dir <- paste(outdir, "DE", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High","ALK1 Low"))
+DimPlot(sub, group.by = "ALK1")
+
+DefaultAssay(sub) <- "RNA"
+#htap <- NormalizeData(sub)
+sub <- filter_quality(object = sub, cells = 0, other.genes = NULL)
+Idents(sub) <- "ALK1"
+#DE <- FindAllMarkers(object = sub, assay = "RNA", slot = "data", only.pos = F)
+DE <- custom_find_markers(object = sub, group_by = "ALK1", test_use = "wilcox", only_pos = F, man_logfc_threshold = 0)
+write.table(DE,file=paste(dir,"DE_ALK1_High_Low_markers.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+
+## GSEA 
+
+```{r}
+
+dir <- paste(outdir, "GSEA", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+
+DE <- read.delim(paste(outdir,"DE/DE_ALK1_High_Low_markers.tsv", sep = "/"), sep = "\t")
+DE_sub <- subset(DE, cluster == "ALK1 High")
+geneList <- DE_sub$avg_log2FC
+names(geneList) <- DE_sub$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+GSEA_BP <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+GSEA_BP@result$analyse <- rep("DE_ALK1_High")
+GSEA_BP@result$setType <- rep("Biological Process")
+GSEA_BP@result$organism <- rep("Homo sapiens ")
+saveRDS(GSEA_BP, paste(dir, "GSEA_BP_DE_ALK1_High.rds", sep = "/"))
+write.table(GSEA_BP@result, file=paste(dir,"GSEA_BP_DE_ALK1_High.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+View(GSEA_BP@result)
+
+```
+
+### Dotplot top 50 GO BP
+
+```{r fig.width=8, fig.height=12}
+
+GSEA_BP <- readRDS(paste(outdir, "GSEA/GSEA_BP_DE_ALK1_High.rds", sep = "/"))
+
+dotplot(GSEA_BP, showCategory = terms)
+
+ggsave(paste(dir, "dotplot_top50_GSEA_BP_DE_ALK1_High_markers.pdf", sep = "/"), 
+       width = 8, height = 12)
+
+```
+
+### Dotplot top 10 GO BP terms
+
+```{r fig.width=6, fig.height=3.5}
+
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+#GSEA_BP_sub <- dplyr::filter(GSEA_BP, Description %in% terms)
+clusterProfiler::dotplot(GSEA_BP, showCategory = terms, x = "GeneRatio") 
+
+ggsave(paste(outdir, "Figure_2B_dotplot_top10_GSEA_BP_DE_ALK1_High_markers.pdf", sep = "/"), width = 6, height = 3.5)
+
+```
+
+
+## Mettre en lumière l'implication des gènes de la voie VEGF dans le cluster ALK1 high (VEGFA, VEGFB, VEGFC, VEGFD, PGF, FLT1 et KDR) au travers de volcanoPlots des 5 fonctions GO : sprouting angiogenesis, angiogenesis, EC proliferation, Cell motility, tube development
+
+
+```{r fig.width=6, fig.height=4}
+
+DE <- read.delim(paste(outdir,"DE/DE_ALK1_High_Low_markers.tsv", sep = "/"), sep = "\t")
+DE <- subset(DE, cluster == "ALK1 High")
+avgExp <- AverageExpression(object = sub, assays = "RNA", slot = "data", group.by = "ALK1", features = DE$gene, return.seurat = F)
+avgExp <- data.frame(avgExp$RNA)
+avgExp$gene <- rownames(avgExp)
+avgExp$avg_exp <- log2(avgExp$ALK1.High)*1/2
+avgExp <- avgExp %>% dplyr::mutate(avg_log2Exp = ifelse(avg_exp < 0, 0, avg_exp))
+merged <- merge(avgExp, DE, by = "gene")
+write.table(merged,file=paste(outdir,"DE/Avg_Exp_DE_ALK1_High.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+DE <- read.delim(paste(outdir,"DE/Avg_Exp_DE_ALK1_High.tsv", sep = "/"), sep = "\t")
+
+GSEA_BP <- readRDS(paste(outdir, "GSEA/GSEA_BP_DE_ALK1_High.rds", sep = "/"))
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+GSEA_BP_sub <- dplyr::filter(GSEA_BP, Description %in% terms)
+
+hp <- enrichplot::heatplot(GSEA_BP_sub, showCategory = nrow(GSEA_BP_sub@result))
+query <- subset(hp$data, categoryID == "cell motility")
+query_genes <- query$Gene
+
+DE <- read.delim(paste(outdir,"DE/Avg_Exp_DE_ALK1_High.tsv", sep = "/"), sep = "\t")
+DE <- DE %>% mutate(Significant = case_when(avg_log2FC > 0 & p_val_adj <= 0.05 ~ "Up",
+                                   avg_log2FC < 0 & p_val_adj <= 0.05 ~ "Down", TRUE ~ "None"))
+cols <- c("Up" = "#C70039", "Down" = "#1C1C90", "None" = "grey60")
+ sizes <- c("Up" = 0.8, "Down" = 0.8, "None" = 0.5)
+    alphas <- c("Up" = 1, "Down" = 1, "None" = 0.5)
+
+up <- subset(DE, avg_log2FC > 0 & p_val_adj < 0.05)
+down <- subset(DE, avg_log2FC < 0 & p_val_adj < 0.05)
+up_to_plot <- subset(up, gene %in% query_genes)
+down_to_plot <- subset(down, gene %in% query_genes)
+up_box <- subset(up_to_plot, gene %in% c("VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "FLT1", "KDR"))
+down_box <- subset(down_to_plot, gene %in% c("VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "FLT1", "KDR"))
+up_to_plot <- up_to_plot[! up_to_plot$gene %in% up_box$gene, ]
+down_to_plot <- down_to_plot[! down_to_plot$gene %in% down_box$gene, ]
+
+# Ma-plot
+
+ggplot(data = DE, aes(x = avg_log2Exp, y = avg_log2FC, colour = Significant), fill = Significant, size = Significant, alpha = Significant) +
+  geom_point(aes(colour = Significant), alpha = 0.2, shape = 16, size = 1.3) +
+  geom_point(data=subset(DE, Significant == "Up" & gene %in% up_to_plot), shape = 21, colour = "#C70039", fill = "#C70039") +
+  geom_point(data=subset(DE, Significant == "Down" & gene %in% down_to_plot),shape = 21, colour = "#1C1C90", fill = "#1C1C90") +
+  geom_text_repel(data = up_to_plot, aes(label = gene), size = 2, colour = "#C70039", fontface = "italic",show.legend = F,force = 2, nudge_x = 0.1, segment.size = 0.08) +
+  geom_text_repel(data = down_to_plot, aes(label = gene), size = 2, colour = "#1C1C90", fontface = "italic",show.legend = F,force = 2, nudge_x = 0.1, segment.size = 0.08) +
+  geom_label_repel(data = up_box, # Add labels last to appear as the top layer
+                   aes(label = gene),force = 2, nudge_y = 2, fill = "white",
+                   segment.size = 0.08, colour = "#C70039", size = 3,fontface = "italic") +
+  geom_label_repel(data = down_box, aes(label = gene), force = 2, nudge_y = 2, fill = "white",
+                   segment.size = 0.08, colour = "#1C1C90", size = 3, fontface = "italic") +
+  theme_bw() +
+  scale_color_manual(values = cols) +
+  xlab(bquote(~'Average'~Log[2]~'Expression')) +
+  ylab(bquote(~'Average'~Log[2]~'Fold Change')) +
+  theme(plot.title = element_text(hjust = 0.5, size = 10, family = "Helvetica", face = "italic"),
+        text = element_text(size = 8, family = "Helvetica", color = "black"),
+        legend.title = element_text(face = "bold", size = 6),
+        legend.text = element_text(size = 6)) +
+  ggtitle(paste(unique(query$categoryID)))
+
+
+```
+
+
+```{r fig.width=5, fig.height=5}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High","ALK1 Low"))
+sub <- NormalizeData(sub)
+DimPlot(sub, group.by = "ALK1")
+
+DE <- read.delim(paste(outdir,"DE/DE_ALK1_High_Low_markers.tsv", sep = "/"), sep = "\t")
+DE <- subset(DE, cluster == "ALK1 High")
+avgExp <- AverageExpression(object = sub, assays = "RNA", slot = "data", group.by = "ALK1", features = DE$gene, return.seurat = F)
+avgExp <- data.frame(avgExp$RNA)
+avgExp$gene <- rownames(avgExp)
+avgExp$avg_exp <- log2(avgExp$ALK1.High)*1/2
+avgExp <- avgExp %>% dplyr::mutate(avg_log2Exp = ifelse(avg_exp < 0, 0, avg_exp))
+merged <- merge(avgExp, DE, by = "gene")
+write.table(merged,file=paste(outdir,"DE/Avg_Exp_DE_ALK1_High.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+DE <- read.delim(paste(outdir,"DE/Avg_Exp_DE_ALK1_High.tsv", sep = "/"), sep = "\t")
+
+GSEA_BP <- readRDS(paste(outdir, "GSEA/GSEA_BP_DE_ALK1_High.rds", sep = "/"))
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+GSEA_BP_sub <- dplyr::filter(GSEA_BP, Description %in% terms)
+
+
+
+ma_plot <- function(DE, 
+                    GSEA, 
+                    terms = terms, 
+                    query_genes = c("VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "FLT1", "KDR")){
+  
+  DE <- DE %>% mutate(Significant = case_when(avg_log2FC > 0.25 & p_val_adj < 0.05 ~ "Up",
+                                              avg_log2FC < -0.25 & p_val_adj < 0.05 ~ "Down", TRUE ~ "None"))
+  
+  cols <- c("Up" = "#C70039", "Down" = "#1C1C90", "None" = "grey60")
+  sizes <- c("Up" = 0.8, "Down" = 0.8, "None" = 0.5) 
+  
+  hp <- enrichplot::heatplot(GSEA, showCategory = nrow(GSEA@result))
+  GO_term <- hp$data
+  terms <- unique(GO_term$categoryID)
+  maplot_list <- list()
+  
+  for(i in 1:length(terms)){
+    
+    term <- terms[i]
+    GO_term_sub <- subset(GO_term, categoryID == term)
+    
+    up <- subset(DE, avg_log2FC > 0.25 & p_val_adj < 0.05)
+    down <- subset(DE, avg_log2FC < -0.25 & p_val_adj < 0.05)
+    up_to_plot <- subset(up, gene %in% GO_term_sub$Gene)
+    down_to_plot <- subset(down, gene %in% GO_term_sub$Gene)
+    up_box <- subset(up_to_plot, gene %in% query_genes)
+    down_box <- subset(down_to_plot, gene %in% query_genes)
+    up_to_plot <- up_to_plot[! up_to_plot$gene %in% up_box$gene, ]
+    down_to_plot <- down_to_plot[! down_to_plot$gene %in% down_box$gene, ]
+    
+    # Ma-plot
+    
+    maplot_list[[i]] <- ggplot(data = DE, aes(x = avg_log2Exp, y = avg_log2FC, colour = Significant), fill = Significant, size = Significant, alpha = Significant) +
+      geom_point(aes(colour = Significant), alpha = 0.5, shape = 16, size = 0.5) +
+      geom_point(data=subset(DE, Significant == "Up" & gene %in% up_to_plot), shape = 21, alpha = 0.5, size = 0.5, colour = "#C70039", fill = "#C70039") +
+      geom_point(data=subset(DE, Significant == "Down" & gene %in% down_to_plot),shape = 21, alpha = 0.5, size = 0.5, colour = "#1C1C90", fill = "#1C1C90") +
+      geom_text_repel(data = up_to_plot, aes(label = gene), size = 2, colour = "#C70039", fontface = "italic",show.legend = F,force = 2, nudge_x = 0.1, segment.size = 0.08) +
+      geom_text_repel(data = down_to_plot, aes(label = gene), size = 2, colour = "#1C1C90", fontface = "italic",show.legend = F,force = 2, nudge_x = 0.1, segment.size = 0.08) +
+      geom_label_repel(data = up_box, aes(label = gene),force = 2, nudge_y = 2, fill = "white",segment.size = 0.08, colour = "#C70039", size = 2,fontface = "italic") +
+      geom_label_repel(data = down_box, aes(label = gene), force = 2, nudge_y = 2, fill = "white",segment.size = 0.08, colour = "#1C1C90", size = 2, fontface = "italic") +
+      theme_bw() +
+      scale_color_manual(values = cols) +
+      xlab(bquote(~'Average'~Log[2]~'Expression')) +
+      ylab(bquote(~'Average'~Log[2]~'Fold Change')) +
+      theme(plot.title = element_text(hjust = 0.5, size = 10, family = "Helvetica", face = "italic"),
+            text = element_text(size = 8, family = "Helvetica", color = "black"),
+            legend.title = element_text(face = "bold", size = 6),
+            legend.text = element_text(size = 6)) +
+      guides(color = guide_legend(override.aes = list(size = 1))) +
+      ggtitle(paste(unique(term)))
+    
+    ggsave(paste(outdir, "/", term, "_ALK1_High.pdf", sep = ""), width = 6, height = 4, useDingbats = FALSE)
+    
+  }
+  
+  return(maplot_list)
+}
+
+
+ma_plot(DE = DE, GSEA = GSEA_BP_sub, terms = terms, query_genes = c("VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "FLT1", "KDR"))
+
+
+```
+
+
+## DE ALK1 Low + BMP9 vs ALK1 Low
+
+```{r}
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+DimPlot(htap)
+sub <- subset(htap, idents = c("ALK1 Low+BMP9", "ALK1 Low"))
+sub <- filter_quality(object = sub, cells = 0, other.genes = NULL)
+DE <- FindMarkers(object = sub, ident.1 = "ALK1 Low+BMP9", ident.2 = "ALK1 Low", only.pos = F,  assay = "RNA", slot = "data", logfc.threshold = 0, test.use = "wilcox")
+DE$gene <- rownames(DE)
+DE$analyse <- rep("DE_ALK1_Low+BMP9_vs_ALK1_Low", nrow(DE))
+write.table(DE,file=paste(outdir,"DE/DE_ALK1_Low_BMP9_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+### GSEA
+
+```{r fig.width=4.5, fig.height=2.5}
+
+## https://github.com/YuLab-SMU/DOSE/issues/20
+## https://github.com/ctlab/fgsea
+
+dir <- paste(outdir, "GSEA", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+
+DE <- read.delim(paste(outdir,"DE/DE_ALK1_Low_BMP9_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+
+geneList <- DE$avg_log2FC
+names(geneList) <- DE$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+GSEA_BP <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+GSEA_BP@result$analyse <- rep("GSEA_BP_DE_Low_BMP9_vs_ALK1_Low")
+GSEA_BP@result$setType <- rep("Biological Process")
+GSEA_BP@result$organism <- rep("Homo sapiens ")
+saveRDS(GSEA_BP, paste(dir, "GSEA_BP_DE_Low_BMP9_vs_ALK1_Low.rds", sep = "/"))
+write.table(GSEA_BP@result, file=paste(dir,"GSEA_BP_DE_Low_BMP9_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+View(GSEA_BP@result)
+
+```
+
+
+### Dotplot top 50 GO BP
+
+```{r fig.width=14, fig.height=12}
+
+GSEA_BP <- readRDS(paste(outdir, "GSEA/GSEA_BP_DE_Low_BMP9_vs_ALK1_Low.rds", sep = "/"))
+
+dotplot(GSEA_BP, showCategory = 50)
+ggsave(paste(dir, "dotplot_top50_GSEA_BP_DE_Low_BMP9_vs_ALK1_Low.pdf", sep = "/"), 
+       width = 14, height = 12, useDingbats = FALSE)
+
+```
+
+### Dotplot top 10 GO BP terms
+
+```{r fig.width=9, fig.height=4}
+
+GSE_ALK1_Low_BMP9_vs_ALK1_Low <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/outs/gse/GSE_ALK1_Low_BMP9_vs_ALK1_Low.rds")
+
+terms <- c("regulation of blood pressure","regulation of BMP signaling pathway", "regulation of pathway-restricted SMAD protein phosphorylation","negative regulation of ossification", "positive regulation of cell differentiation", "endothelial cell migration", "tissue migration", "blood circulation", "regulation of cell population proliferation", "negative regulation of transcription by RNA polymerase II")
+
+GSEA_BP_sub <- dplyr::filter(GSE_ALK1_Low_BMP9_vs_ALK1_Low, Description %in% terms)
+clusterProfiler::dotplot(GSEA_BP_sub, showCategory = 10) 
+ggsave(paste(dir, "dotplot_top10_GSEA_BP_DE_Low_BMP9_vs_ALK1_Low.pdf", sep = "/"), width = 9, height = 4, useDingbats = FALSE)
+
+
+```
+
+# Figure 4 A
+
+```{r fig.width=3, fig.height=5, warning=FALSE}
+
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low", "ALK1 High+BMP9"))
+sub <- NormalizeData(object = sub, assay = "RNA")
+DimPlot(sub)
+
+my_cols <- list()
+my_cols = setNames(c("#117733","#88CCEE","#CC6677"), c("ALK1 Low","ALK1 High",  "ALK1 High+BMP9"))
+# labels <- c(expression("PMECs ALK1"^italic("High")),
+#             expression("PMECs ALK1"^italic("Low")),
+#             expression("PMECs ALK1"^italic("High")*"+"*"BMP9")
+# )
+
+my_comparisons <- list(c("ALK1 High", "ALK1 Low"),  c("ALK1 Low", "ALK1 High+BMP9"), c("ALK1 High","ALK1 High+BMP9"))
+
+VlnPlot(sub, group.by = "ALK1", features = 'VEGFA', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 2.5) +
+  NoLegend() 
+
+ggsave(paste(outdir, "VEGFA_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'VEGFB', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 3) +
+  NoLegend() 
+
+ggsave(paste(outdir, "VEGFB_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'VEGFC', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+  ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 3) +
+  NoLegend() 
+
+ggsave(paste(outdir, "VEGFC_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'VEGFD', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 1.5) +
+  NoLegend() 
+
+ggsave(paste(outdir, "VEGFD_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'PGF', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 5) + NoLegend()
+
+ggsave(paste(outdir, "PGF_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'FLT1', cols = my_cols, pt.size = 0) +
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 4.5) + NoLegend() 
+
+ggsave(paste(outdir, "FLT1_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+VlnPlot(sub, group.by = "ALK1", features = 'KDR', cols = my_cols, pt.size = 0) +
+    #scale_x_discrete(labels = labels, position = "bottom") +
+    #scale_color_discrete(labels = labels, type = c("#117733","#88CCEE","#CC6677")) + 
+  theme( plot.title = element_text(hjust = 0.5, size = 10, face="italic"),
+         text =  element_text(size = 8, family = "Helvetica"), 
+         axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         axis.text.y = element_text(color = "black"),
+         axis.title =  element_text(face = "plain"), 
+         axis.title.x = element_blank(),
+         axis.text =   element_text(size = 8)
+         ) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", size = 2) + 
+  ylim(0, 4)# + NoLegend()
+
+ggsave(paste(outdir, "KDR_ALK1_Low_High_High_BMP9.pdf", sep = "/"), width = 2, height = 3, useDingbats = FALSE)
+
+
+```
+
+
+# DE ALK1 High+BMP9 vs ALK1 High
+
+```{r}
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+DimPlot(htap)
+sub <- subset(htap, idents = c("ALK1 High+BMP9", "ALK1 High"))
+sub <- filter_quality(object = sub, cells = 0, other.genes = NULL)
+DE <- FindMarkers(object = sub, ident.1 = "ALK1 High+BMP9", ident.2 = "ALK1 High", only.pos = F,  assay = "RNA", slot = "data", logfc.threshold = 0, test.use = "wilcox")
+DE$gene <- rownames(DE)
+DE$analyse <- rep("DE_ALK1_High+BMP9_vs_ALK1_High", nrow(DE))
+write.table(DE,file=paste(outdir,"DE/DE_ALK1_High_BMP9_vs_ALK1_High.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+## GSEA
+
+```{r fig.width=4.5, fig.height=2.5}
+
+dir <- paste(outdir, "GSEA", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+
+DE <- read.delim(paste(outdir,"DE/DE_ALK1_High_BMP9_vs_ALK1_High.tsv", sep = "/"), sep = "\t")
+
+geneList <- DE$avg_log2FC
+names(geneList) <- DE$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+GSEA_BP <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+GSEA_BP@result$analyse <- rep("GSEA_BP_DE_High_BMP9_vs_ALK1_High")
+GSEA_BP@result$setType <- rep("Biological Process")
+GSEA_BP@result$organism <- rep("Homo sapiens ")
+saveRDS(GSEA_BP, paste(dir, "GSEA_BP_DE_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+write.table(GSEA_BP@result, file=paste(dir,"GSEA_BP_DE_High_BMP9_vs_ALK1_High.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+### Dotplot top 100 GO BP
+
+```{r fig.width=10, fig.height=22}
+
+GSE_ALK1_High_BMP9_vs_ALK1_High <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/outs/gse/GSE_ALK1_High_BMP9_vs_ALK1_High.rds")
+View(GSE_ALK1_High_BMP9_vs_ALK1_High@result)
+dotplot(GSE_ALK1_High_BMP9_vs_ALK1_High, showCategory = 100)
+ggsave(paste(outdir, "Sup_3B_top100_GSEA_BP_DE_High_BMP9_vs_ALK1_High.pdf", sep = "/"), 
+       width = 10, height = 22, useDingbats = FALSE)
+
+```
+
+
+
+# DE ALK1 High vs ALK1 Low
+
+```{r fig.width=14, fig.height=3}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "condition"
+sub <- subset(htap, idents = "CTRL")
+Idents(sub) <- "ALK1"
+sub <- subset(sub, idents = c("ALK1 High", "ALK1 Low"))
+sub <- filter_quality(object = sub, cells = 0, other.genes = NULL)
+Idents(sub) <- "ALK1"
+markers <- FindMarkers(object = sub, ident.1 = "ALK1 High", ident.2 = "ALK1 Low", only.pos = F,  assay = "RNA", slot = "data", logfc.threshold = 0, test.use = "MAST")
+markers$gene <- rownames(markers)
+markers$analyse <- rep("ALK1_High_vs_ALK1_Low", nrow(markers))
+
+# https://bioinformatics.stackexchange.com/questions/18059/findmarkers-from-seurat-returns-p-values-as-0-for-highly-significant-genes
+# FindMarkers from Seurat returns p values as 0 for highly significant genes
+# a better approach is to avoid using p-values as quantitative / rankable results in plots; they're not meant to be used in that way. You can show results as a MA plot instead, plotting log2 fold change vs average expression:
+# It was really helpful solution. I used the AverageExpression(object = pbmc_small) to get mean expression per cell type. then combed it with the Find Markers results using the Gene names then was able to perform MA plot. So those genes are visible under the plot now.
+
+avg <- AverageExpression(object = sub, assays = "RNA", slot = "data", group.by = "ALK1", features = markers$gene, return.seurat = F)
+avg <- data.frame(avg$RNA)
+avg$gene <- rownames(avg)
+colnames(avg) <- c("avg_ALK1_High", "avg_ALK1_Low","gene")
+merged <- merge(avg, markers, by = "gene")
+write.table(markers,file=paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+write.table(merged,file=paste(outdir,"merged_DE_ALK1_High_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+## Dotplot
+
+```{r fig.width=14, fig.height=3}
+markers <- read.delim(paste(outdir,"merged_DE_ALK1_High_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+top = markers %>% dplyr::group_by(analyse) %>% do(head(., n=50))
+top = head(top[order(top$avg_log2FC, decreasing = T),],50)
+custom_dotplot(seurat_object = htap, idents = c("ALK1 High","ALK1 Low"), features = top$gene, x_lab_rotate = T, flip_axes = F, base_size = 8, theme_bw = T) 
+
+```
+
+
+## Volcanoplot
+
+```{r fig.width=6, fig.height=6}
+# Adapted from https://erikaduan.github.io/posts/2021-01-02-volcano-plots-with-ggplot2/
+
+volcano_plot <- function(DE, query_genes = NULL){
+  
+  DE$cell_type <- factor(gsub("_", " ", DE$cell_type))
+  cell_types <- unique(DE$cell_type)
+  volcano_list <- list()
+  
+  for(i in 1:length(cell_types)){
+    cell_type <- cell_types[i]
+    DE_sub <- data.frame(DE[DE$cell_type == cell_type,])
+    
+    # Create new categorical column
+    DE_sub <- DE_sub %>%
+      mutate(Significant = case_when(avg_logFC > 0 & p_val_adj <= 0.05 ~ "up",
+                                   avg_logFC < 0 & p_val_adj <= 0.05 ~ "down",
+                                   TRUE ~ "ns"))
+    # Obtain Significant counts
+    DE_sub %>% dplyr::count(Significant)
+    
+    # Check Significant categories
+    DE_sub %>%
+      dplyr::distinct(Significant) %>%
+      dplyr::pull()  
+    
+    # Add colour, size and alpha (transparency) to volcano plot
+    cols <- c("up" = "#C70039", "down" = "#1C1C90", "ns" = "grey60") 
+    sizes <- c("up" = 0.8, "down" = 0.8, "ns" = 0.5) 
+    alphas <- c("up" = 1, "down" = 1, "ns" = 0.5)
+    
+    sig_genes <- subset(DE_sub, p_val_adj <= 0.05)
+    up_genes <- subset(sig_genes, avg_logFC > 0)
+    up_to_plot <- subset(up_genes, gene %in% query_genes)
+    down_genes <- subset(sig_genes, avg_logFC < 0)
+    down_to_plot <- subset(down_genes, gene %in% query_genes)
+    genes_to_plot <- subset(sig_genes, gene %in% query_genes)
+    
+    # Identify xlim() values
+    min_avg_logFC <- round(min(DE_sub$avg_logFC), digits = 0)
+    max_avg_logFC <- round(max(DE_sub$avg_logFC), digits = 0)
+    max <- max(abs(min_avg_logFC), abs(max_avg_logFC))
+
+    # Plot
+    volcano_list[[i]] <- DE_sub %>%
+      ggplot(aes(x = avg_logFC, y = -log10(p_val_adj),fill = Significant,    
+                 size = Significant, alpha = Significant)) + 
+      theme_bw() +
+      geom_point(aes(colour = Significant), alpha = 0.2, shape = 16, size = 0.5) + 
+      geom_point(data = up_genes, shape = 21, size = 0.8, fill = "#C70039", colour = "#C70039") + 
+      geom_point(data = down_genes, shape = 21, size = 0.8, fill = "#1C1C90", colour = "#1C1C90") +  
+      geom_hline(yintercept = -log10(0.05),linetype = "dashed", colour = "black", size = 0.1) + 
+      geom_vline(xintercept = c(log2(0.5), log2(2)),linetype = "dashed",colour = "black", size = 0.1) +
+      scale_fill_manual(values = cols) + # Modify point colour
+      scale_size_manual(values = sizes) + # Modify point size
+      scale_alpha_manual(values = alphas) +
+      #geom_text_repel(data = up_genes, aes(label=gene), colour = "#C70039", fontface = "italic",show.legend=F) +
+      #geom_text_repel(data = down_genes, aes(label=gene), colour = "#1C1C90", fontface = "italic",show.legend=F) +
+      geom_label_repel(data = up_to_plot, # Add labels last to appear as the top layer  
+                       aes(label = gene),force = 2, nudge_y = 1, fill = "white",
+                       segment.size = 0.01, colour = "#C70039", size = 2,fontface = "italic") +
+      geom_label_repel(data = down_to_plot, aes(label = gene), force = 2, nudge_y = 1, fill = "white",
+                       segment.size = 0.01, colour = "#1C1C90", size = 2, fontface = "italic") +
+      scale_colour_manual(values = cols) +
+      #xlim(c(-max, max)) + 
+      #xlab(bquote(~'Average'~Log[2]~'FC (PAH/CTRL)')) +
+      #ylab(bquote(~-Log[10]~'p-value adjusted')) +
+      theme(plot.title = element_text(hjust = 0.5, size = 8, family = "Helvetica", face = "italic"),
+            text = element_text(size = 6, family = "Helvetica"),
+            axis.title.x = element_text(size = 6),
+            axis.text.x = element_text(size = 5),
+            axis.title.y = element_text(size = 6),
+            axis.text.y = element_text(size = 5),
+            legend.title = element_text(face = "bold", size = 6), 
+            legend.text = element_text(size = 6),
+            legend.position = "none") +
+      ggtitle(paste(cell_type))
+  }
+  
+  return(volcano_list)
+}
+```
+
+
+```{r fig.width=6, fig.height=6}
+
+DE <- markers %>%
+  mutate(Significant = case_when(avg_log2FC > 0 & p_val_adj <= 0.05 ~ "up",
+                               avg_log2FC < 0 & p_val_adj <= 0.05 ~ "down",
+                               TRUE ~ "ns"))
+# Obtain Significant counts
+DE %>% dplyr::count(Significant)
+
+# Check Significant categories
+DE %>%
+  dplyr::distinct(Significant) %>%
+  dplyr::pull()  
+
+# Add colour, size and alpha (transparency) to volcano plot
+cols <- c("up" = "#C70039", "down" = "#1C1C90", "ns" = "grey60") 
+sizes <- c("up" = 0.8, "down" = 0.8, "ns" = 0.5) 
+alphas <- c("up" = 1, "down" = 1, "ns" = 0.5)
+
+query_genes <- c("KDR", "VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "FLT1")
+sig_genes <- subset(DE, p_val_adj <= 0.05)
+up_genes <- subset(sig_genes, avg_log2FC > 0)
+up_to_plot <- subset(up_genes, gene %in% query_genes)
+down_genes <- subset(sig_genes, avg_log2FC < 0)
+down_to_plot <- subset(down_genes, gene %in% query_genes)
+#genes_to_plot <- subset(sig_genes, gene %in% query_genes)
+
+# Identify xlim() values
+min_avg_log2FC <- round(min(DE$avg_log2FC), digits = 0)
+max_avg_log2FC <- round(max(DE$avg_log2FC), digits = 0)
+max <- max(abs(min_avg_log2FC), abs(max_avg_log2FC))
+#DE$p_val_adj[DE$p_val_adj==0] <- 1e-10
+
+# Plot
+DE %>%
+  ggplot(aes(y = avg_log2FC, x = avg_ALK1_High,fill = Significant,    
+             size = Significant, alpha = Significant)) +
+  theme_bw() +
+      geom_point(aes(colour = Significant), alpha = 0.2, shape = 16, size = 0.5) + 
+      geom_point(data = up_genes, shape = 21, size = 0.8, fill = "#C70039", colour = "#C70039") + 
+      geom_point(data = down_genes, shape = 21, size = 0.8, fill = "#1C1C90", colour = "#1C1C90") +  
+      # geom_hline(yintercept = -log10(0.05),linetype = "dashed", colour = "black", size = 0.1) + 
+      # geom_vline(xintercept = c(log2(0.5), log2(2)),linetype = "dashed",colour = "black", size = 0.1) +
+      scale_fill_manual(values = cols) + # Modify point colour
+      scale_size_manual(values = sizes) + # Modify point size
+      scale_alpha_manual(values = alphas) +
+      #geom_text_repel(data = up_genes, aes(label=gene), colour = "#C70039", size = 3, fontface = "italic",show.legend=F) +
+      #geom_text_repel(data = down_genes, aes(label=gene), colour = "#1C1C90",size = 3, fontface = "italic",show.legend=F) +
+      geom_label_repel(data = up_to_plot, # Add labels last to appear as the top layer  
+                        aes(label = gene),force = 2, nudge_y = 0.2, fill = "white",
+                        segment.size = 0.01, colour = "#C70039", size = 2,fontface = "italic") +
+      geom_label_repel(data = down_to_plot, aes(label = gene), force = 2, nudge_y = 0.2, fill = "white",
+                        segment.size = 0.01, colour = "#1C1C90", size = 2, fontface = "italic") +
+      scale_colour_manual(values = cols) +
+      ylim(c(-max, max)) + theme(legend.position = "none")
+
+
+```
+
+
+## Stritplot
+
+```{r fig.width=5, fig.height=5}
+
+DE  <- read.delim(paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+
+# Setup significant and non significant genes
+DE <- mutate(DE, sig = ifelse(p_val_adj < 0.05 & avg_log2FC > 0.2 | 
+                                p_val_adj < 0.05 & avg_log2FC < -0.2, "Sig", "NS"))
+DE<-mutate(DE, updown = ifelse(p_val_adj < 0.05 & avg_log2FC > 0.2, "Up", 
+                               ifelse(p_val_adj < 0.05 & avg_log2FC < -0.2, "Down", "NS")))
+
+x <-unique(DE$analyse)
+DE$analyse <- factor(DE$analyse, levels = x)
+DE<-group_by(DE, analyse) 
+sigs<-dplyr::filter(DE, sig == "Sig")
+top_1 <- c("KDR", "FLT1")
+bot_1 <- c("PDPN","TFF3","MGP")
+top <- sigs %>% group_by(analyse) %>% slice_max(order_by = avg_log2FC, n = 10)
+#top <- subset(top, gene %in% top_1)
+bot <- sigs %>% group_by(analyse) %>% slice_min(order_by = avg_log2FC, n = 10)
+#bot <- subset(bot, gene %in% bot_1)
+five <- dplyr::full_join(top, bot)
+
+ggplot(DE, aes(x = analyse, y = avg_log2FC)) +
+  geom_jitter_rast(data=DE[DE$updown == "NS",], 
+                   color = "gray60", width = 0.2, height = 0.0, alpha = 0.5, shape = 1, raster.dpi = 100) +
+  geom_jitter_rast(data=DE[DE$updown != "NS" & DE$updown == "Up", ],
+                   color="darkred", width = 0.2, height = 0.0, alpha = 0.5, shape = 1, raster.dpi = 100) +
+  geom_jitter_rast(data=DE[DE$updown != "NS" & DE$updown == "Down", ],
+                   color="darkblue", width = 0.2, height = 0.0, alpha = 0.5, shape = 1, raster.dpi = 100) +
+  geom_text_repel(data = five,label = five$gene, fontface = "italic", size = 3, max.overlaps = Inf) + 
+  theme(axis.title.x = element_text(color = "black"), 
+        axis.title.y = element_text(color = "black"),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, color = "black"), text = element_text(size = 10),
+        legend.position = "none", axis.line = element_line(colour = "black"),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()
+  ) +
+theme_bw() 
+
+```
+
+## GSEA
+
+```{r fig.width=4.5, fig.height=2.5}
+
+## https://github.com/YuLab-SMU/DOSE/issues/20
+## https://github.com/ctlab/fgsea
+
+markers <- read.delim(paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+GSEA_BP <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             eps = 0.05,
+             minGSSize = 0, 
+             maxGSSize = 1000, 
+             pvalueCutoff = 0.05,
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(GSEA_BP, paste(outdir, "GSEA_BP_DE_ALK1_High_vs_Low.rds", sep = "/"))
+GSEA_BP@result$analyse <- rep("DE_ALK1_High_vs_ALK1_Low")
+write.table(GSEA_BP@result, file=paste(outdir,"GSEA_BP_DE_ALK1_High_vs_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+View(GSEA_BP@result)
+
+```
+
+
+
+```{r fig.width=10, fig.height=2.5}
+
+terms <- c("angiogenesis", "sprouting angiogenesis", "endothelial cell migration",  "cell motility", "tube development")
+
+GSEA_BP_sub <- dplyr::filter(GSEA_BP, Description %in% terms)
+#View(GSEA_BP_sub@result)
+
+enrichplot::heatplot(GSEA_BP_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 5, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+        axis.title = element_text(size = 10, colour = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "right") +
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Avg logFC", type = "gradient") 
+
+ggsave(paste(outdir, "fig_1D_v1.pdf", sep = "/"), width = 12, height = 2, useDingbats = FALSE)
+
+```
+
+
+
+```{r}
+
+GSEA_BP <- readRDS(paste(outdir, "GSEA_BP_DE_ALK1_High_vs_Low.rds", sep = "/"))
+# terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+terms <- c("angiogenesis", "sprouting angiogenesis", "endothelial cell migration",  "cell motility", "tube development")
+GSEA_BP_sub <- dplyr::filter(GSEA_BP, Description %in% terms)
+hp <- enrichplot::heatplot(GSEA_BP_sub, foldChange=geneList, showCategory = length(nrow(GSEA_BP_sub@result)))
+#data <- subset(hp$data, categoryID == "cell migration")
+data <-  hp$data
+colnames(data) <- c("categoryID","gene","foldChange")
+markers <- read.delim(paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+markers <- subset(markers, gene %in% hp$data$Gene)
+data <- merge(data, markers, by = "gene")
+data <- data[,c("gene","categoryID", "avg_log2FC","p_val", "p_val_adj")]
+View(data)
+```
+
+
+
+
+
+# Gene Expressions
+
+```{r fig.width=16, fig.height=3}
+
+
+ DefaultAssay(htap) <- "RNA"
+
+ 
+p1 <- FeaturePlot(htap, features = c("PECAM1"), slot = "counts",min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("PECAM1") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+p2 <- FeaturePlot(htap, features = c("ERG"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("ERG") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p3 <- FeaturePlot(htap, features = c("CDH5"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("CDH5") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p4 <- FeaturePlot(htap, features = c("TEK"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("TEK") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+grid.arrange(p1,p2,p3,p4,ncol=4)
+
+pdf(paste(outdir, "Figure_supplementaire_5_A.pdf", sep = "/"), width = 16, height = 3, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,ncol=4)
+dev.off()
+
+```
+
+
+```{r  fig.width=4, fig.height=3}
+
+p1 <- FeaturePlot(htap, features = c("TAGLN"),slot = "data", min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("TAGLN") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p2 <- FeaturePlot(htap, features = c("ACTA2"), slot = "data", min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("ACTA2") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+grid.arrange(p1,p2,ncol=2)
+
+pdf(paste(outdir, "Figure_supplementaire_5_B.pdf", sep = "/"), width = 8, height = 3, useDingbats = FALSE)
+grid.arrange(p1,p2,ncol=2)
+dev.off()
+
+```
+
+
+
+```{r fig.width=16, fig.height=6}
+
+
+ DefaultAssay(htap) <- "RNA"
+ htap <- NormalizeData(htap)
+p1 <- FeaturePlot(htap, features = c("ID1"), slot = "counts",min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("ID1") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+p2 <- FeaturePlot(htap, features = c("ID2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("ID2") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p3 <- FeaturePlot(htap, features = c("ID3"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("ID3") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p4 <- FeaturePlot(htap, features = c("SMAD6"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("SMAD6") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+p5 <- FeaturePlot(htap, features = c("SMAD7"),slot = "data", min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("SMAD7") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p6 <- FeaturePlot(htap, features = c("SNAI1"), slot = "data", min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("SNAI1") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p7 <- FeaturePlot(htap, features = c("SNAI2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("SNAI2") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p8 <- FeaturePlot(htap, features = c("TWIST1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+        ) +
+    ggtitle("TWIST1") +
+    guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,ncol=4)
+
+pdf(paste(outdir, "Figure_supplementaire_5.pdf", sep = "/"), width = 16, height = 6, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,ncol=4)
+dev.off()
+
+```
+
+
+## ALK
+
+```{r fig.width=12, fig.height=5}
+
+DefaultAssay(htap) <- "RNA"
+
+p1 <- FeaturePlot(htap, features = c("ACVRL1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK1 (ACVRL1)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p2 <- FeaturePlot(htap, features = c("ACVR1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK2 (ACVR1)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+p3 <- FeaturePlot(htap, features = c("BMPR1A"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK3 (BMPR1A)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p4 <- FeaturePlot(htap, features = c("ACVR1B"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK4 (ACVR1B)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+p5 <- FeaturePlot(htap, features = c("TGFBR1"),  min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK5 (TGFBR1)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p6 <- FeaturePlot(htap, features = c("BMPR1B"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK6 (BMPR1B)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+p7 <- FeaturePlot(htap, features = c("ACVR1C"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  theme_bw(base_line_size = 0) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.3, 'cm'),
+        legend.key.width= unit(0.3, 'cm')
+  ) +
+  ggtitle("ALK6 (ACVR1C)") +
+  guides(colour = guide_colorbar(title = "Average \nExpression")) 
+
+
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+
+pdf(paste(outdir, "featureplot_ALK1.pdf", sep = "/"), width = 16, height = 6, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+dev.off()
+```
+

@@ -1,0 +1,246 @@
+---
+title: "10x PAH BMP9 - Pre-processing"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+outs:
+  html_document: default
+  html_notebook: default
+date: 'Compiled: `r Sys.Date()`'
+---
+
+# Setting parameters
+
+```{r setup, include=TRUE, warning=FALSE}
+
+invisible(gc())
+the.seed <- 1337L
+options(future.globals.maxSize = 80000 * 1024^2)
+work.space <- "/data/data_mbouamboua/projects/10x_pah_bmp9"
+out.dir <-  paste(work.space, "outs/outs_27_02_2023", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+source("/data/data_mbouamboua/apps/sc/visualization.R")
+set.seed(the.seed)
+
+```
+
+
+
+# Integrating samples by condition
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+A1 <- readRDS("/data/10x_data/10x_tu/output/A1.rds")
+A2 <- readRDS("/data/10x_data/10x_tu/output/A2.rds")
+A3 <- readRDS("/data/10x_data/10x_tu/output/A3.rds")
+A4 <- readRDS("/data/10x_data/10x_tu/output/A4.rds")
+
+B1 <- readRDS("/data/10x_data/10x_tu/output/B1.rds")
+B2 <- readRDS("/data/10x_data/10x_tu/output/B2.rds")
+B3 <- readRDS("/data/10x_data/10x_tu/output/B3.rds")
+B4 <- readRDS("/data/10x_data/10x_tu/output/B4.rds")
+
+C1 <- readRDS("/data/10x_data/10x_tu/output/C1.rds")
+C2 <- readRDS("/data/10x_data/10x_tu/output/C2.rds")
+C3 <- readRDS("/data/10x_data/10x_tu/output/C3.rds")
+C4 <- readRDS("/data/10x_data/10x_tu/output/C4.rds")
+
+D1 <- readRDS("/data/10x_data/10x_tu/output/D1.rds")
+D2 <- readRDS("/data/10x_data/10x_tu/output/D2.rds")
+D3 <- readRDS("/data/10x_data/10x_tu/output/D3.rds")
+D4 <- readRDS("/data/10x_data/10x_tu/output/D4.rds")
+
+E1 <- readRDS("/data/data_mbouamboua/10x_tu/output/E1.rds")
+E2 <- readRDS("/data/data_mbouamboua/10x_tu/output/E2.rds")
+E3 <- readRDS("/data/data_mbouamboua/10x_tu/output/E3.rds")
+E4 <- readRDS("/data/data_mbouamboua/10x_tu/output/E4.rds")
+
+# Integration sample by condition
+ctrl.list <- c(A1, B1, C1, D1, E1)
+ctrl.bmp9.list <- c(A2, B2, C2, D2, E2)
+htap.list <- c(A3, B3, C3, D3, E3)
+htap.bmp9.list <- c(A4, B4, C4, D4, E4)
+
+```
+
+
+## Integration CTRL (A1, B1, C1, D1, E1)
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+#htap.list <- lapply(X = htap.list, FUN = function(x) { x <- SCTransform(x) })
+
+options(future.globals.maxSize = 80000 * 1024^2)
+features <- SelectIntegrationFeatures(object.list = ctrl.list, nfeatures = 3000)
+ctrl.list <- PrepSCTIntegration(object.list = ctrl.list, anchor.features = features)
+ctrl.list <- lapply(X = ctrl.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = ctrl.list, anchor.features = features, normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+pool.CTRL <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+
+pool.CTRL <- RunPCA(pool.CTRL, verbose = FALSE)
+pool.CTRL <- RunUMAP(pool.CTRL, dims = 1:30)
+
+DimPlot(object = pool.CTRL, label=TRUE, pt.size = 1)
+
+saveRDS(pool.CTRL, "./output/pool.CTRL.rds")
+```
+
+
+
+## Integration CTRL.BMP9 (A2, B2, C2, D2, E2)
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+options(future.globals.maxSize = 80000 * 1024^2)
+
+features <- SelectIntegrationFeatures(object.list = ctrl.bmp9.list, nfeatures = 3000)
+ctrl.bmp9.list <- PrepSCTIntegration(object.list = ctrl.bmp9.list, anchor.features = features)
+ctrl.bmp9.list <- lapply(X = ctrl.bmp9.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = ctrl.bmp9.list, anchor.features = features, normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+pool.CTRL.BMP9 <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+
+pool.CTRL.BMP9 <- RunPCA(pool.CTRL.BMP9, verbose = FALSE)
+pool.CTRL.BMP9 <- RunUMAP(pool.CTRL.BMP9, dims = 1:30)
+
+DimPlot(object = pool.CTRL.BMP9, label=TRUE, pt.size = 1)
+
+saveRDS(pool.CTRL.BMP9, "./output/pool.CTRL.BMP9.rds")
+
+```
+
+
+
+## Integration HTAP (A3, B3, C3, D3, E3)
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+
+options(future.globals.maxSize = 80000 * 1024^2)
+features <- SelectIntegrationFeatures(object.list = htap.list, nfeatures = 3000)
+htap.list <- PrepSCTIntegration(object.list = htap.list, anchor.features = features)
+htap.list <- lapply(X = htap.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = htap.list, anchor.features = features, normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+pool.HTAP <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+
+pool.HTAP <- RunPCA(pool.HTAP, verbose = FALSE)
+pool.HTAP <- RunUMAP(pool.HTAP, dims = 1:30)
+
+# Plot
+
+DimPlot(object = pool.HTAP, label=TRUE, pt.size = 1)
+
+saveRDS(pool.HTAP, "./output/pool.HTAP.rds")
+```
+
+
+## Integration HTAP.BMP9 (A4, B4, C4, D4, E4)
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+options(future.globals.maxSize = 80000 * 1024^2)
+features <- SelectIntegrationFeatures(object.list = htap.bmp9.list, nfeatures = 3000)
+htap.bmp9.list <- PrepSCTIntegration(object.list = htap.bmp9.list, anchor.features = features)
+htap.bmp9.list <- lapply(X = htap.bmp9.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = htap.bmp9.list, anchor.features = features, normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+pool.HTAP.BMP9 <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+
+pool.HTAP.BMP9 <- RunPCA(pool.HTAP.BMP9, verbose = FALSE)
+pool.HTAP.BMP9 <- RunUMAP(pool.HTAP.BMP9, dims = 1:30)
+
+DimPlot(object = pool.HTAP.BMP9, label=TRUE, pt.size = 1)
+
+saveRDS(pool.HTAP.BMP9, "./output/pool.HTAP.BMP9.rds")
+
+```
+
+
+# Integration Pool PAH + Pool CTRL
+
+```{r}
+pool.PAH <- readRDS(paste(data.dir,  "pool.PAH.rds", sep = "/"))
+DefaultAssay(pool.PAH) <- "RNA"
+pool.CTRL <- readRDS(paste(data.dir,  "pool.CTRL.rds", sep = "/"))
+DefaultAssay(pool.CTRL) <- "RNA"
+invisible(gc())
+sample.list <- c(pool.PAH, pool.CTRL)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+#sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, pool.PAH, pool.CTRL)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.integrated.CTRL.HTAP.rds", sep = "/"))
+invisible(gc())
+```
+
+
+# Integration Pool PAH.BMP9 + Pool CTRL.BMP9
+
+```{r}
+
+pool.HTAP.BMP9 <- readRDS(paste(data.dir,  "pool.HTAP.BMP9.rds", sep = "/"))
+DefaultAssay(pool.HTAP.BMP9) <- "RNA"
+pool.CTRL.BMP9 <- readRDS(paste(data.dir,  "pool.CTRL.BMP9.rds", sep = "/"))
+DefaultAssay(pool.CTRL.BMP9) <- "RNA"
+invisible(gc())
+sample.list <- c(pool.HTAP.BMP9, pool.CTRL.BMP9)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+#sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, pool.HTAP.BMP9, pool.CTRL.BMP9)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.integrated.CTRL.BMP9.HTAP.BMP9.rds", sep = "/"))
+invisible(gc())
+```
+
+
+
+# Global integration
+
+```{r}
+pool.PAH <- readRDS(paste(data.dir,  "pool.integrated.CTRL.BMP9.HTAP.BMP9.rds", sep = "/"))
+DefaultAssay(pool.PAH) <- "RNA"
+pool.CTRL <- readRDS(paste(data.dir,  "pool.integrated.CTRL.HTAP.rds", sep = "/"))
+DefaultAssay(pool.CTRL) <- "RNA"
+invisible(gc())
+sample.list <- c(pool.PAH, pool.CTRL)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+#sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, pool.PAH, pool.CTRL)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.integrated.rds", sep = "/"))
+invisible(gc())
+```
+
+
+# Session Info
+
+```{r sessinf}
+sessionInfo()
+```

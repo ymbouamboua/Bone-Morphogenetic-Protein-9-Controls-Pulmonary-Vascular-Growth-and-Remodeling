@@ -1,0 +1,926 @@
+---
+title: "10x PAH BMP9 - ALK1 Analysis"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document: default
+  html_notebook: default
+date: 'Compiled: `r Sys.Date()`'
+---
+
+# Setting parameters
+
+```{r setup, include=TRUE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      eval = TRUE,
+                      cache = FALSE, 
+                      cache.lazy = FALSE, 
+                      tidy = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE)
+the.seed <- 1337L
+options(future.globals.maxSize = 80000 * 1024^2)
+work.space <- "/data/data_mbouamboua/projects"
+work.dir <- paste(work.space, "10x.pah.bmp9", sep = "/")
+data.dir <- paste(work.space, "output/10x.pah.bmp9/rds", sep = "/")
+out.dir <-  paste(work.space, "output/10x.pah.bmp9", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+
+set.seed(the.seed)
+```
+
+
+
+# Loading integrated htap data
+
+```{r }
+
+htap <- readRDS(paste(data.dir, "htap_10_clusters_without_cycling.rds", sep = "/"))
+invisible(gc())
+#DimPlot(htap, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+Idents(htap) <- "ALK1"
+
+```
+
+# Define ggplot theme functions
+
+```{r}
+
+my.theme1 <- function(base.size = 8, ...){
+  theme_bw(base_rect_size = 0.2, ...) +
+  theme(
+        legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.box.margin = margin(0,0,0,-8),
+        legend.title = element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        text = element_text(size = base.size),
+        axis.title.y = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+}
+
+
+my.theme2 <- function(base.size = 8, ...){
+  theme_bw(...) +
+  theme(
+        legend.position = c(1.055, 4.5),
+        legend.justification = "left",
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.margin = margin(0,0,0,0), 
+        legend.box.margin = margin(-30,5,0,-3),
+        legend.title=element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        text = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90,  
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = 6, 
+                                   color = "black"),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()
+        )
+}
+
+
+my.theme3 <- function(base.size = 6, ...){
+  theme_bw(base_rect_size = 0.2, ...) +
+  theme(
+        legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.box.margin = margin(0,0,0,-8),
+        legend.title = element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        axis.ticks =  element_line(colour = "black", size = 0.1), 
+        text = element_text(size = base.size),
+        axis.title.y = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90,  
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = base.size, 
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+}
+
+
+
+```
+
+# Receptor expressions
+
+## Legend ALK1
+
+```{r}
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(htap[features,])
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = htap, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9"))
+
+my_comparisons <- list( c("ALK1 High", "ALK1 Low"), c("ALK1 High", "ALK1 High+BMP9"), c("ALK1 Low", "ALK1 Low+BMP9") )
+
+
+g1 <- ggboxplot(joined,
+          x = "feat", 
+          y = "exp", 
+          fill = "ident",
+          xlab = " ",
+          ylab = "Expression level",
+          width = 0.8,
+          notch = FALSE,
+          outlier.shape = NA,
+          bxp.errorbar = TRUE,
+          bxp.errorbar.width = 0.8) +
+  theme(legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.title=element_text(size=8), 
+        legend.text=element_text(size=7),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0,0,0,0), "cm")) +
+    scale_fill_manual(labels = labels,values = c( "#117733","#88CCEE","#DDCC77","#CC6677")) +
+labs(title = " ", fill = "ALK1 clusters")
+
+# get legend
+leg <- ggpubr::get_legend(g1)
+leg <- as_ggplot(leg)
+ggsave(paste(out.dir,"/figures/","ALK1.legend.pdf", sep = ""), width = 2, height = 3)
+
+```
+
+## Legend receptors
+
+```{r fig.width=5, fig.height=3}
+
+Idents(htap) <- "ALK1"
+# Features to plot (receptors type 1,2,3)
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(htap[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = htap, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9"))
+# Plot 1
+g1 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.4) +
+  my.theme1(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels,values = c( "#117733","#88CCEE","#DDCC77","#CC6677")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 2.5,
+    label.y = c(1, 1, 1, 2.3, 0.8, 0.7, 0.95, 0.95, 0.95, 2.2, 2.7, 2.4, 1.0)
+  )
+
+# Prepare data for plot 2
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = seurat.sub, genes = c(type1, type2, type3), fix_names = TRUE)
+df$cell <- rownames(df)
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3), variable.name = "feat", value.name = "exp")
+dt <- data.frame(x = levels(df$feat), group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), stringsAsFactors = FALSE)
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  theme(
+        legend.position = c(1.055, 4.5),
+        legend.justification = "left",
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.spacing.y = unit(1, 'mm'),
+        legend.margin = margin(0,0,0,0), 
+        legend.box.margin = margin(-15,5,0,-3),
+        legend.title=element_text(size = 6), 
+        legend.text=element_text(size = 6),
+        panel.spacing = unit(0, "lines"),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        text = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90,  
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = 6, 
+                                   color = "black"),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()
+        ) +
+  geom_tile() + 
+  xlab("") +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(label.position = "right", title = "Receptors", keyheight = 0.5, nrow = 3)) 
+  
+# Use patchwork to join plots
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+ggsave(paste(out.dir,"/figures/","ALK1.receptor.legend.pdf", sep = ""), width = 5, height = 3)
+
+
+# pdf(paste(out.dir, "figures", "boxplot_ALK1_high_vs_ALK1_low_receptors.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+# g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+# dev.off()
+
+```
+
+
+
+
+## Violinplot ALK1 high vs ALK1 low
+
+```{r}
+
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+
+violin.plot.wilcox <- function(object, 
+                               group.by, 
+                               gene.signature, 
+                               test.sign, 
+                               file.name, 
+                               out.dir){
+  
+  require(Seurat)
+  require(ggplot2)
+  
+  if ("Seurat" != class(object)[1]) {
+    stop("object should be of class Seurat")
+  }
+  
+  if (!missing(x = group.by)) {
+    object <- SetIdent(object = object, value = group.by)
+  }
+  
+  #signature <- rownames(object[signature,])
+  
+  plot <- function(signature, y.max = NULL){
+    p <- VlnPlot(object = object, 
+                 group.by = group.by, 
+                 features = signature,
+                 cols = c("#88CCEE","#117733"),
+                 pt.size = 0, 
+                 y.max = y.max)
+    
+    p <- p + theme( plot.title = element_text(hjust = 0.5, size = 8, face="bold.italic"),
+                    text =  element_text(size = 5, family = "Helvetica"), 
+                    legend.position = "none",
+                    panel.grid.major = ggplot2::element_blank(), 
+                    panel.grid.minor = ggplot2::element_blank(),
+                    panel.background = ggplot2::element_blank(),
+                    axis.line =   element_line(colour = "black"), 
+                    axis.ticks =  element_line(colour = "black", size = 5/12), 
+                    axis.title =  element_text(face = "plain"), 
+                    axis.title.x = element_blank(),
+                    axis.text =   element_text(size = 5), 
+                    axis.text.x = element_text(angle = 0, hjust = 0.5)
+    ) 
+    
+    p <- p + stat_compare_means(comparisons = test.sign, label = "p.signif", size = 3)
+    labels <- c(expression("ALK1"^italic("Low")), expression("ALK1"^italic("High")))
+    p + scale_x_discrete(labels = labels)
+    
+  }
+  
+  plot.list <- list()
+  y.max.list <- list()
+  
+  for (gene in gene.signature) {
+    plot.list[[gene]] <- plot(gene)
+    y.max.list[[gene]] <- max(plot.list[[gene]]$data[[gene]])
+    plot.list[[gene]] <- plot(gene, y.max = (y.max.list[[gene]] + 1) )
+  }
+  
+  plot <- cowplot::plot_grid(plotlist = plot.list, ncol = 5)
+  ggsave(paste(out.dir,"/",file.name,".violinplot.pdf", sep = ""), width = 7, height = 4)
+  return(plot)
+}
+
+comparisons <- list(c("ALK1 High", "ALK1 Low"))
+
+violin.plot.wilcox(object = seurat.sub,
+                   group.by = "ALK1",
+                   gene.signature = c(type1, type2, type3),
+                   file.name = "seurat",
+                   out.dir = paste(out.dir, "ALK1", sep = "/"),
+                   test.sign = comparisons)
+
+```
+
+
+## Boxplot ALK1 High vs ALK1 Low
+
+```{r fig.width=5, fig.height=3}
+
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot (receptors type 1,2,3)
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")))
+
+# Plot 1
+g1 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.4) +
+  my.theme1(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#88CCEE")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(1, 1, 1, 2.3, 0.8, 0.7, 0.95, 0.95, 0.95, 2.2, 2.7, 2.4, 1.0)
+  )
+
+# Prepare data for plot 2
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = seurat.sub, genes = c(type1, type2, type3), fix_names = TRUE)
+df$cell <- rownames(df)
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3), variable.name = "feat", value.name = "exp")
+dt <- data.frame(x = levels(df$feat), group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), stringsAsFactors = FALSE)
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  my.theme2(base.size = 6) +
+  geom_tile() + 
+  xlab("") +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(label.position = "right", title = "Receptors", keyheight = 0.5, nrow = 3)) 
+  
+# Use patchwork to join plots
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_high_vs_ALK1_low_receptors.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+dev.off()
+
+```
+
+
+
+
+
+## Boxplot ALK1 High vs ALK1 High+BMP9
+
+```{r fig.width=5, fig.height=3}
+
+# Subset and normalize ALK1 High, ALK1 High+BMP9 cell clusters
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 High", "ALK1 High+BMP9"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot (receptors type 1,2,3)
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(#expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9"))
+
+# Plot 1
+g3 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.3) +
+  my.theme1(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#88CCEE", "#CC6677")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(1.4, 1.0, 1.0, 2.3, 0.9, 0.9, 1.0, 1.0, 1.0, 2.9, 2.7, 2.9, 1.0)
+  )
+
+# Prepare data for plot 2
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = seurat.sub, genes = c(type1, type2, type3), fix_names = TRUE)
+df$cell <- rownames(df)
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3), variable.name = "feat", value.name = "exp")
+dt <- data.frame(x = levels(df$feat), group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), stringsAsFactors = FALSE)
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g4 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  my.theme2(base.size = 6) +
+  geom_tile() + 
+  xlab("") +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(label.position = "right", title = "Receptors", keyheight = 0.5, nrow = 3)) 
+  
+# Use patchwork to join plots
+g3 + g4 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_high_vs_ALK1_high_bmp9_receptors.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+g3 + g4 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+dev.off()
+
+```
+
+## Boxplot ALK1 low vs ALK1 low+BMP9
+
+
+```{r fig.width=5, fig.height=3}
+
+# Subset and normalize ALK1 High, ALK1 High+BMP9 cell clusters
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 Low", "ALK1 Low+BMP9"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot (receptors type 1,2,3)
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low+BMP9")))
+
+# Plot 1
+g5 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.4) +
+  my.theme1(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#DDCC77")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(1.5, 0.9, 0.8, 1.75, 0.8, 0.7, 0.8, 0.9, 0.85, 3.0, 2.7, 2.6, 0.85)
+  )
+
+# Prepare data for plot 2
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = seurat.sub, genes = c(type1, type2, type3), fix_names = TRUE)
+df$cell <- rownames(df)
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3), variable.name = "feat", value.name = "exp")
+dt <- data.frame(x = levels(df$feat), group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), stringsAsFactors = FALSE)
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g6 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  my.theme2(base.size = 6) +
+  geom_tile() + 
+  xlab("") +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(label.position = "right", title = "Receptors", keyheight = 0.5, nrow = 3)) 
+  
+# Use patchwork to join plots
+g5 + g6 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_low_vs_ALK1_low_BMP9_receptors.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+g5 + g6 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+dev.off()
+
+```
+
+## Combine boxplots
+```{r fig.width=2.5, fig.height=5}
+
+g1.1 <- g1+theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), plot.margin=unit(c(1,1,-1,1), "mm")) + theme(axis.title.y = element_blank(), legend.position = "none") 
+
+g3.3 <- g3+theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), plot.margin=unit(c(1,1,1,1), "mm")) + theme(legend.position = "none")
+
+g5.5 <- g5+g6+theme(plot.margin=unit(c(-1,1,1,1), "mm")) + 
+  theme(axis.text.x = element_text(size = 5), axis.title.y = element_blank(), legend.position = "none")
+
+g5.5 <- g5 + theme(plot.margin=unit(c(-1,1,1,1), "mm")) + 
+  theme(axis.text.x = element_blank(), axis.title.y = element_blank(), legend.position = "none") + g6 + theme(legend.position = "none") + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+g1.1/g3.3/g5.5 + patchwork::plot_layout(ncol = 1, nrow = 3, guides = "collect") 
+
+pdf(paste(out.dir, "figures", "combined_boxplot_receptors.pdf", sep = "/"), width = 2.5, height = 5, useDingbats = FALSE)
+g1.1/g3.3/g5.5 + patchwork::plot_layout(ncol = 1, nrow = 3, guides = "collect") 
+dev.off()
+
+```
+
+# Expression of "KDR","TEK","FLT1","PDGFRB","PDGFB","PGF","ANGPT2","ANGPT1","VEGFA","VEGFB", "FOXF1" genes
+
+## Boxplot ALK1 High vs ALK1 Low
+
+```{r fig.width=5, fig.height=3}
+
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot 
+features = c("ANGPT1", "ANGPT2", "FLT1", "FOXF1", "KDR","PDGFB", "PDGFRB", "PGF", "TEK","VEGFA","VEGFB")
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")))
+
+# Plot 1
+p1 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.4) +
+  my.theme3(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#88CCEE")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(0.8,3.7, 1.3, 1.2, 2.2, 2.0, 1.0,  3.5, 1.4, 0.9, 1.9)
+  )
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_high_vs_ALK1_low_KDR..VEGFB.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+print(p1)
+dev.off()
+
+```
+
+
+
+
+
+## Boxplot ALK1 High vs ALK1 High+BMP9
+
+```{r fig.width=5, fig.height=3}
+
+# Subset and normalize ALK1 High, ALK1 High+BMP9 cell clusters
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 High", "ALK1 High+BMP9"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot 
+features = c("ANGPT1", "ANGPT2", "FLT1", "FOXF1", "KDR","PDGFB", "PDGFRB", "PGF", "TEK","VEGFA","VEGFB")
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(#expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9"))
+
+# Plot 1
+p2 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.3) +
+  my.theme3(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#88CCEE", "#CC6677")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(0.7, 3.0, 1.8, 1.5, 2.4, 2.6, 0.9, 3.7, 1.2, 1.1, 1.8)
+  )
+
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_high_vs_ALK1_high_bmp9_KDR..VEGFB.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+print(p2)
+dev.off()
+
+```
+
+## Boxplot ALK1 low vs ALK1 low+BMP9
+
+
+```{r fig.width=5, fig.height=3}
+
+# Subset and normalize ALK1 High, ALK1 High+BMP9 cell clusters
+Idents(htap) <- "ALK1"
+seurat.sub <- subset(htap, idents = c("ALK1 Low", "ALK1 Low+BMP9"))
+DefaultAssay(seurat.sub) <- "RNA"
+seurat.sub <- NormalizeData(seurat.sub)
+
+# Features to plot 
+features = c("ANGPT1", "ANGPT2", "FLT1", "FOXF1", "KDR","PDGFB", "PDGFRB", "PGF", "TEK","VEGFA","VEGFB")
+features <- rownames(seurat.sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = seurat.sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low+BMP9")))
+
+
+p3 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.3) +
+  my.theme3(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#DDCC77")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(0.8, 3.7, 1.40, 0.9, 2.0, 2.7, 1.0, 2.7, 1.35, 0.9, 1.7)
+  )
+
+
+pdf(paste(out.dir, "figures", "boxplot_ALK1_low_vs_ALK1_low_BMP9_receptors_KDR..VEGFB.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+print(p3)
+dev.off()
+
+```
+
+## Combine boxplots
+
+```{r fig.width=3, fig.height=4}
+
+p1.1 <- p1+theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), plot.margin=unit(c(1,1,-1,1), "mm")) + theme(axis.title.y = element_blank(), legend.position = "none") 
+p2.2 <- p2+theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), plot.margin=unit(c(1,1,1,1), "mm")) + theme(legend.position = "none")
+p3.3 <- p3+theme(plot.margin=unit(c(-1,1,1,1), "mm")) + 
+  theme(
+    axis.text.x = element_text(size = 5),
+    axis.title.y = element_blank(), 
+        legend.position = "none")
+
+p1.1/p2.2/p3.3 + patchwork::plot_layout(ncol = 1, nrow = 3, guides = "collect") 
+
+pdf(paste(out.dir, "figures", "combined_boxplot_KDR..VEGFB.pdf", sep = "/"), width = 2.5, height = 5, useDingbats = FALSE)
+p1.1/p2.2/p3.3 + patchwork::plot_layout(nrow = 3, guides = "collect")
+dev.off()
+
+```
+
+
+

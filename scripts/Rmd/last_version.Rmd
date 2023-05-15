@@ -1,0 +1,427 @@
+---
+title: "10X HTAP BMP9 - Analysis"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    theme: united
+    df_print: kable
+  html_notebook:
+    code_folding: none
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+```{r setup, include=TRUE, warning=FALSE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+## Memory 
+options(future.globals.maxSize = 80000 * 1024^2)
+```
+
+# Setting seed and loading R packages
+
+```{r seed_packages}
+suppressPackageStartupMessages(library(Seurat))
+suppressPackageStartupMessages(library(speckle))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(require(ggpubr))
+suppressPackageStartupMessages(require(cowplot))
+suppressPackageStartupMessages(library(limma))
+suppressPackageStartupMessages(require(dittoSeq))
+suppressPackageStartupMessages(require(dplyr))
+suppressPackageStartupMessages(require(patchwork))
+suppressPackageStartupMessages(require(stringr))
+suppressPackageStartupMessages(require(plyr))
+suppressPackageStartupMessages(require(cowplot))
+suppressPackageStartupMessages(require(formattable))
+suppressPackageStartupMessages(require(reshape2))
+suppressPackageStartupMessages(require(pheatmap))
+suppressPackageStartupMessages(require(ShinyCell))
+suppressPackageStartupMessages(require(ggrepel))
+suppressPackageStartupMessages(require(Libra))
+suppressPackageStartupMessages(require(Matrix.utils))
+suppressPackageStartupMessages(require(edgeR))
+suppressPackageStartupMessages(require(magrittr))
+suppressPackageStartupMessages(require(Matrix))
+suppressPackageStartupMessages(require(purrr))
+suppressPackageStartupMessages(require(S4Vectors))
+suppressPackageStartupMessages(require(tibble))
+suppressPackageStartupMessages(require(apeglm))
+suppressPackageStartupMessages(require(png))
+suppressPackageStartupMessages(require(DESeq2))
+suppressPackageStartupMessages(require(stringr))
+suppressPackageStartupMessages(library(ggrepel))
+suppressPackageStartupMessages(library(DOSE))
+suppressPackageStartupMessages(library(clusterProfiler))
+suppressPackageStartupMessages(library(org.Hs.eg.db))
+suppressPackageStartupMessages(library(forcats))
+suppressPackageStartupMessages(library(enrichplot))
+suppressPackageStartupMessages(library(DOSE))
+
+source("/data/data_mbouamboua/R_scripts/upsetPlotFromList.R")
+source(paste(work.dir,"scripts/R_scripts/asDataframeSeurat.R", sep = "/"))
+source("/data/data_mbouamboua/R_scripts/tf.function.R")
+set.seed(the.seed)
+
+```
+
+# Load data
+
+```{r}
+htap <- readRDS(paste(data.dir, "htap_without_cycling.rds", sep = "/"))
+invisible(gc())
+DimPlot(htap, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "clusters", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "condition") + DarkTheme()
+DimPlot(htap, group.by = "sample") + DarkTheme()
+```
+
+# Subset cluster C1, C2, C3, C4, C5
+
+```{r}
+Idents(htap) <- "clusters"
+sub <- subset(htap, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = "CTRL", invert = F)
+DimPlot(sub, group.by = "clusters", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(sub, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(sub, group.by = "condition") + DarkTheme()
+```
+
+
+
+
+# Gene markers identification
+
+```{r}
+#Idents(htap) <- "condition"
+# sobj <- subset(htap, idents = c("CTRL", "CTRL+BMP9"))
+# DimPlot(sobj, group.by = "ALK1")
+DefaultAssay(htap) <- "RNA"
+htap <- NormalizeData(htap)
+Idents(htap) <- "ALK1"
+markers <- FindAllMarkers(object = htap,  only.pos = FALSE)
+write.table(markers,file=paste(output.dir,  "last_version","DE_ALK1.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+# ALK1 Low
+
+## GSE GO BP
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=20, fig.width=9}
+markers <- read.delim(paste(output.dir, "last_version", "DE_ALK1.tsv", sep = "/"), header = T, sep = "\t")
+de_sub <- subset(markers, cluster == "ALK1 Low")
+geneList <- de_sub$avg_log2FC
+names(geneList) <- rownames(de_sub)
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(output.dir, "last_version", "gse_ALK1_Low.rds", sep = "/"))
+
+res <- gse@result
+res$Analyse <- rep("ALK1 Low")
+
+write.table(res,file=paste(output.dir, "last_version","gse_res_ALK1_Low.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+p <- clusterProfiler::dotplot(gse,  showCategory = 100) +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8))+
+      ggtitle("Top 100 GO Biological Process terms \n ALK1 Low")
+
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot_GEO_BP_ALK1.Low.pdf", sep = "/"), width = 8, height = 20, useDingbats = F)
+print(p)
+dev.off()
+
+
+```
+
+
+# ALK1 High
+
+## GSE GO BP
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=20, fig.width=9}
+markers <- read.delim(paste(output.dir, "last_version", "DE_ALK1.tsv", sep = "/"), header = T, sep = "\t")
+de_sub <- subset(markers, cluster == "ALK1 High")
+geneList <- de_sub$avg_log2FC
+names(geneList) <- rownames(de_sub)
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(output.dir, "last_version", "gse_ALK1_High.rds", sep = "/"))
+
+res <- gse@result
+res$Analyse <- rep("ALK1 High")
+
+write.table(res,file=paste(output.dir, "last_version","gse_res_ALK1_High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+p <- clusterProfiler::dotplot(gse,  showCategory = 100) +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8)) +
+    ggtitle("Top 100 GO Biological Process terms \n ALK1 High")
+
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot_GEO_BP_ALK1.High.pdf", sep = "/"), width = 8, height = 20, useDingbats = F)
+print(p)
+dev.off()
+
+```
+
+
+# ALK1 Low vs ALK1 Low+BMP9
+## DE ALK1 Low vs ALK1 Low+BMP9
+```{r}
+Idents(htap) <- "ALK1"
+markers <- FindMarkers(object = htap, ident.1 = "ALK1 Low", ident.2 = "ALK1 Low+BMP9", only.pos = FALSE,  assay = "RNA", slot = "data")
+
+write.table(markers,file=paste(output.dir,  "last_version","DE_ALK1.Low_vs_ALK1_Low.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+## Dotplot
+
+```{r warning=FALSE, fig.width=2.4, fig.height=13}
+de_genes <- read.delim(paste(output.dir, "last_version", "DE_ALK1.Low_vs_ALK1_Low.BMP9.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[order(de_genes$p_val_adj <= 0.05),] 
+head(de_genes,10)
+markers_50 <- head(de_genes,100)
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low")*"+BMP9")
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9")
+)
+
+p <- DotPlot(object = htap, 
+        assay = "RNA", 
+        features = rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],100)), 
+        idents = c("ALK1 Low", "ALK1 Low+BMP9"), 
+        dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(low ="#0570b0", mid = "white", low ="#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot.DE.ALK1.Low.vs.ALK1.Low.BMP9.pdf", sep = "/"), width = 2.4, height = 13, useDingbats = F)
+print(p)
+dev.off()
+```
+
+## GSE GO BP
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=20, fig.width=9}
+de_genes <- read.delim(paste(output.dir, "last_version", "DE_ALK1.Low_vs_ALK1_Low.BMP9.tsv", sep = "/"), header = T, sep = "\t")
+
+geneList <- de_genes$avg_log2FC
+names(geneList) <- rownames(de_genes)
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(output.dir, "last_version", "gse_ALK1.Low_vs_ALK1_Low.BMP9.rds", sep = "/"))
+
+res <- gse@result
+res$Analyse <- rep("ALK1.Low_vs_ALK1_Low.BMP9")
+
+write.table(res,file=paste(output.dir, "last_version","gse_res_ALK1.Low_vs_ALK1_Low.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+p <- clusterProfiler::dotplot(gse,  showCategory = 100) +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8)) +
+  ggtitle("Top 100 GO Biological Process terms \n ALK1 Low vs ALK1 Low+BMP9")
+
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot_GEO_BP_ALK1.Low_vs_ALK1_Low.BMP9.pdf", sep = "/"), width = 8, height = 20, useDingbats = F)
+print(p)
+dev.off()
+
+```
+
+
+
+
+
+# ALK1 High vs ALK1 High+BMP9
+
+## DE ALK1 High vs ALK1 High+BMP9
+```{r}
+Idents(htap) <- "ALK1"
+markers <- FindMarkers(object = htap, ident.1 = "ALK1 High", ident.2 = "ALK1 High+BMP9", only.pos = FALSE,  assay = "RNA", slot = "data")
+
+write.table(markers,file=paste(output.dir,  "last_version","DE_ALK1.High_vs_ALK1_High.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+
+## Dotplot
+
+```{r warning=FALSE, fig.width=2.4, fig.height=13}
+de_genes <- read.delim(paste(output.dir, "last_version", "DE_ALK1.High_vs_ALK1_High.BMP9.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[order(de_genes$p_val_adj <= 0.05),] 
+head(de_genes,10)
+markers_50 <- head(de_genes,100)
+
+labels <- c(expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("High")*"+BMP9")
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9")
+)
+
+p <- DotPlot(object = htap, 
+        assay = "RNA", 
+        features = rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],100)), 
+        idents = c("ALK1 High", "ALK1 High+BMP9"), 
+        dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(High ="#0570b0", mid = "white", High ="#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot.DE.ALK1.High.vs.ALK1.High.BMP9.pdf", sep = "/"), width = 2.4, height = 13, useDingbats = F)
+print(p)
+dev.off()
+```
+
+## GSE GO BP
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=20, fig.width=9}
+de_genes <- read.delim(paste(output.dir, "last_version", "DE_ALK1.High_vs_ALK1_High.BMP9.tsv", sep = "/"), header = T, sep = "\t")
+
+geneList <- de_genes$avg_log2FC
+names(geneList) <- rownames(de_genes)
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(output.dir, "last_version", "gse_ALK1.High_vs_ALK1_High.BMP9.rds", sep = "/"))
+
+res <- gse@result
+res$Analyse <- rep("ALK1.High_vs_ALK1_High.BMP9")
+
+write.table(res,file=paste(output.dir, "last_version","gse_res_ALK1.High_vs_ALK1_High.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+p <- clusterProfiler::dotplot(gse,  showCategory = 100) +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  scale_colour_gradient2(low = "#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8)) +
+  ggtitle("Top 100 GO Biological Process terms \n ALK1 High vs ALK1 High+BMP9")
+
+
+print(p)
+
+pdf(paste(output.dir, "last_version", "dotplot_GEO_BP_ALK1.High_vs_ALK1_High.BMP9.pdf", sep = "/"), width = 8, height = 20, useDingbats = F)
+print(p)
+dev.off()
+```
+
+
+

@@ -1,0 +1,177 @@
+---
+title: "10X HTAP BMP9 - DE CTRL vs PAH"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    theme: united
+    df_print: kable
+  html_notebook:
+    code_folding: none
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+```{r setup, include=TRUE, warning=FALSE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", "v1", sep = "/")
+output.dir <- paste(work.dir, "outs", "markers", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+## Memory 
+options(future.globals.maxSize = 80000 * 1024^2)
+```
+
+# Setting seed and loading R packages
+
+```{r seed_packages}
+suppressPackageStartupMessages(library(Seurat))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggrepel))
+set.seed(the.seed)
+```
+
+
+
+# Load data
+
+```{r}
+htap <- readRDS(paste(data.dir, "htap.rds", sep = "/"))
+invisible(gc())
+DimPlot(htap, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "condition") + DarkTheme()
+DimPlot(htap, group.by = "sample") + DarkTheme()
+```
+
+
+# Clean data
+
+```{r}
+# Remove Sexual Sex‐Determining Genes
+sexual.genes <- read.csv("/data/data_mbouamboua/ref.markers/genes.table.csv")
+chrY.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "Y"]
+#chrX.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "X"]
+# Remove Sexual Sex‐Determining Genes
+htap <- htap[!grepl("XIST|RPS4Y1|AC006157.1|ZFY|ZFY-AS1|LINC00278|PCDH11Y|USP9Y|DDX3Y|UTY|TMSB4Y|TTTY14|AC010889.1|KDM5D|      EIF1AY|RPS4Y2", rownames(htap)), ]
+# Remove overabante genes
+htap <- htap[!grepl("MALAT1|FTL|^SFTP|^SCGB|FTH1|TIMP3|TXNIP|NEAT1|NTM|B2M|IGKC|LSAMP", rownames(htap)), ]
+# Remove MT, HB, Ribo genes
+htap <- htap[!grepl("^MT-|^MTRNR|^RP[LS][[:digit:]]|^HB[^(P)]", rownames(htap)), ]
+```
+
+
+## DE CTRL vs PAH
+
+```{r}
+res.dir <- paste(output.dir, "DE_ctrl_vs_pah", sep = "/")
+test.use = "wilcox"
+DefaultAssay(htap) <- "RNA"
+htap <- NormalizeData(htap)
+## Get vector of clusters to test
+Idents(htap) <- "ALK1"
+clusters <- sort(as.vector(unique(htap@active.ident)))
+clusters
+nb <- length(clusters)
+#nb <- nb -1
+
+for(i in 1:nb){
+  ## print start message
+  #print("Starting differential expression analysis fot", clusters[i])
+  
+  ## Initiate empty data frames and lists for comparisons of clusters
+  joined_res <- data.frame()
+  upset_Rlist_DE_genes <- list()
+  print(clusters[i])
+  Idents(htap) <- "ALK1"
+  sub <- subset(htap, idents = clusters[i])
+  sub <- NormalizeData(sub)
+  
+  ## Perform differential expression test using the Seurat FindMarkers function
+  de_genes <- data.frame()
+  Idents(sub) <- "condition"
+  #sub <- PrepSCTFindMarkers(sub, assay = "SCT", verbose = FALSE)
+  de_genes <- FindMarkers(object = sub, ident.1 = "CTRL", ident.2 = "PAH", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+  
+  ## Write table for all differentially expressed genes containing testing results
+  de_genes$cluster <- replicate(nrow(de_genes),clusters[i])
+  de_genes$gene <- rownames(de_genes)
+  de_genes$de_type <- replicate(nrow(de_genes),paste0("ctrl.vs.pah"))
+  de_genes$test.use <- replicate(nrow(de_genes),paste0(test.use))
+  
+  ## Write table for all differentially expressed genes containing testing results
+  write.table(de_genes,file=paste(res.dir,clusters[i],"_DE_ctrl.vs.pah_",test.use,".txt",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+  
+  ## Add DE for this cell type to the UpsetR list
+  sig_res <- dplyr::filter(de_genes, p_val_adj < 0.05) %>% dplyr::arrange(p_val_adj)
+  upset_Rlist_DE_genes[[clusters[i]]] <- c(sig_res$gene)
+  saveRDS(upset_Rlist_DE_genes, file=paste(res.dir,"/", clusters[i], "_upset_de_genes.rds", sep=""))
+  
+}
+
+## Save DE results in a joined table
+joined_res = list.files(res.dir, pattern="*_wilcox.txt", full.names=TRUE)
+joined_res
+joined_res = plyr::ldply(joined_res, read.delim)
+View(joined_res)
+write.table(joined_res,file=paste(res.dir,"/","DE_ctrl.vs.pah_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
+
+```
+
+
+### Barplot
+
+```{r fig.width=5, fig.height=5}
+res.dir <- paste(output.dir, "DE_ctrl_vs_pah", sep = "/")
+source("/data/data_mbouamboua/R_scripts/tf.function.R")
+
+# Read DE PAH vs. CTRL results from Seurat
+markers <- read.delim(paste(output.dir, "DE_ctrl_vs_pah", "DE_ctrl.vs.pah_wilcox.tsv", sep = "/"), 
+                      sep = "\t", header = TRUE, row.names = NULL) 
+
+# Prepare variable of the unique cell type
+cell_types <- unique(markers$cluster)
+
+for(i in 1:length(cell_types)){
+  cell_type <- cell_types[i]
+  DEsub <- data.frame()
+  DEsub <- markers[markers$cluster==cell_type,]
+  
+  # Unique markers per celltype
+  DEsub <- DEsub[order(DEsub$p_val_adj <= 0.05),] 
+  uniq_genes <-  DEsub %>% group_by(gene) %>%  dplyr::summarize(n=n()) %>%  dplyr::filter(n==1)
+  DEsub <-  DEsub[DEsub$gene %in% uniq_genes$gene,]
+  rownames(DEsub) <- NULL
+
+  # Prepare avg logFC matrix
+  mat <- DEsub %>% 
+    tibble::column_to_rownames("gene") %>%
+    dplyr::select(avg_log2FC) %>%
+    as.matrix()
+  
+  if(length(DEsub$gene) > 1){
+    # Plot DE markers
+    p <- plot_top_features(mat, n_top = 10) +
+      labs(title = paste("DE Genes CTRL vs. PAH (Wilcox) "," \n", cell_type, sep = " "), x = "Avg_log2FC", y = " ")
+    print(p)
+    pdf(paste(res.dir, "/", cell_type, "_ctrl_vs_pah.pdf", sep = ""), width = 5, height = 5, useDingbats = F)
+    print(p)
+    dev.off()
+    
+  }
+}
+
+```
+
+

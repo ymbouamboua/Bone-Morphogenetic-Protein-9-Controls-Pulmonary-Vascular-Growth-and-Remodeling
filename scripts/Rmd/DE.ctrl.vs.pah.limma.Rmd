@@ -1,0 +1,156 @@
+---
+title: "10X HTAP NucSeq - DE Limma "
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    df_print: kable
+    highlight: espresso  ## Theme for the code chunks
+    number_sections: yes  ## Adds number to headers (sections)
+    theme: flatly  ## CSS theme for the HTML page
+  html_notebook:
+    code_folding: none
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+
+```{r echo = FALSE}
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      # record the current time before each chunk
+      now <<- Sys.time()
+    } else {
+      # calculate the time difference after a chunk
+      res <- difftime(Sys.time(), now)
+      # return a character string to show the time
+      paste0('Time for this code chunk to run : ', round(x = res, digits = 3), ' s')
+    }
+  }
+}))
+
+# Option chunk
+knitr::opts_chunk$set(
+  time_it = FALSE,
+  echo = TRUE,
+  cache = FALSE,
+  cache.lazy = FALSE,
+  tidy = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10
+)
+
+## Setting Paramaters
+the.seed <- 1337L # Computational Parameters
+
+
+# Setting directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Required packages
+
+suppressMessages(require(Seurat))
+suppressMessages(require(dplyr))
+suppressMessages(require(limma))
+suppressMessages(require(edgeR))
+suppressMessages(require(scater))
+suppressMessages(require(Libra))
+suppressMessages(require(Matrix.utils))
+suppressMessages(require(edgeR))
+suppressMessages(require(magrittr))
+suppressMessages(require(Matrix))
+suppressMessages(require(purrr))
+suppressMessages(require(S4Vectors))
+suppressMessages(require(tibble))
+suppressMessages(require(apeglm))
+suppressMessages(require(png))
+suppressMessages(require(DESeq2))
+suppressMessages(require(stringr))
+
+source("/data/data_mbouamboua/R_scripts/upsetPlotFromList.R")
+set.seed(the.seed)
+```
+
+
+
+```{r}
+htap <- readRDS(paste(data.dir, "htap.rds", sep = "/"))
+DimPlot(htap, group.by = "ALK1")
+DimPlot(htap, group.by = "condition")
+```
+
+
+# DE CTRL vs PAH by limma 
+
+## Cluster ALK1 hight
+
+```{r}
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 hight"))
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH", "CTRL"))
+sub <- NormalizeData(sub)
+# DGE using limma
+sce <- as.SingleCellExperiment(sub)
+# Aggregate cells
+agg <- aggregateAcrossCells(sce, ids = colData(sce)[,c("condition", "sample")])
+group <- factor(agg$condition)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(#PAH.vs.CTRL = PAH - CTRL,
+                             CTRL.vs.PAH = CTRL - PAH,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable <- limma::topTable(efit, number = "Inf")
+# Also filling the reverse comparison.
+topTable[, c( "KO.vs.WT", "B1.vs.B3")] <- - topTable[, c( "KO.vs.WT", "B1.vs.B3")]
+
+
+
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable2 <- limma::topTable(efit, number = "Inf")
+topTable2$cluster <- rep("cluster2", nrow(topTable2))
+```
+

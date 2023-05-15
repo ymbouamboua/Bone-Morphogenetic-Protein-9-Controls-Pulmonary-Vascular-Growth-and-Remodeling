@@ -1,0 +1,74 @@
+---
+title: "10X HTAP NucSeq - Shiny App"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    theme: united
+    df_print: kable
+  html_notebook:
+    code_folding: none
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+```{r setup, include=TRUE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+# Setting seed and loading R packages
+suppressPackageStartupMessages(library(Seurat))
+suppressPackageStartupMessages(library(ShinyCell))
+suppressPackageStartupMessages(library(iSEE))
+suppressPackageStartupMessages(library(iSEEu))
+suppressPackageStartupMessages(library(edgeR))
+set.seed(the.seed)
+```
+
+
+# ShinyApp
+
+```{r}
+app <- htap <- readRDS(paste(data.dir, "htap.rds", sep = "/"))
+DefaultAssay(app) <- "RNA"
+app@meta.data <- app@meta.data[, c("sample","condition", "bmp9", "library", "tag", "nCount_RNA", "nFeature_RNA",  "percent.mito","percent.ribo","clusters", "ALK1")]
+
+scConf1 = createConfig(app)
+checkConfig(scConf1, app)
+
+makeShinyApp(app, 
+             scConf1, 
+             gene.mapping = TRUE, 
+             gex.assay = "RNA", 
+             gex.slot = "data",
+             default.gene1 = "PROX1", 
+             default.gene2 = "LYVE1",
+             default.multigene = c("PROX1", "LTB", "S100A4", "TXNIP", "APLN", "GJA4", "CRYAB", "VEGFC", "IFI27"),
+             shiny.title = "PAH BMP9",
+             shiny.dir = "shinyApp/"
+             ) 
+rm(app)
+
+```
+
+
+# iSEE
+
+```{r}
+# sce <- as.SingleCellExperiment(app)
+# iseeApp <- iSEE(sce)
+# shiny::runApp(iseeApp)
+```

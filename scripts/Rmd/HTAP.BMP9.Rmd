@@ -1,0 +1,848 @@
+---
+title: "10x HTAP BMP9 - Analyse"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+date: "`r Sys.Date()`"
+#always_allow_html: yes
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: yes
+    highlight: zenburn
+    toc: yes
+    toc_depth: 3
+  html_notebook: 
+    code_folding: none
+    theme: united
+    toc: yes
+    number_sections: yes
+  html_document: 
+    code_folding: hide
+    fig_caption: yes
+    highlight: zenburn
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=TRUE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+## Memory 
+#options(future.globals.maxSize = 80000 * 1024^2)
+```
+
+# Setting seed and loading R packages
+
+
+```{r}
+# Loading required packages
+suppressMessages(require(Seurat))
+suppressMessages(require(dittoSeq))
+suppressMessages(require(ggplot2))
+suppressMessages(require(dplyr))
+suppressMessages(require(patchwork))
+suppressMessages(require(stringr))
+suppressMessages(require(plyr))
+suppressMessages(require(cowplot))
+suppressMessages(require(formattable))
+suppressMessages(require(reshape2))
+suppressMessages(require(pheatmap))
+suppressMessages(require(ShinyCell))
+set.seed(the.seed)
+
+```
+
+# Define colors
+
+```{r}
+my_palette <- list()
+# my_palette$sampleColors <- setNames(
+#   c(brewer.pal(n = 8, name = 'RdBu')),
+#   c("PAH_675093", "PAH_704945","PAH_698029", "PAH_693770","PRC_2","PRC_7","PRC_3","PRC_8")
+# )
+
+my_palette$cellColors <- setNames(
+ c(brewer.pal(n = 6, name = 'Paired'), "gray", brewer.pal(n = 6, name = "Dark2")),
+  c("C1", "C2", "C3", "C4", "C5", "C6", "Cycling cells", "C1'", "C2'", "C3'", "C4'", "C5'", "C6'")
+)
+
+# Use colourblind-friendly colours
+friendly_cols <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99", "#999933", "#882255", "#661100", "#6699CC")
+
+# Set theme
+myTheme <-
+  list(
+    scale_fill_manual(values = friendly_cols),
+    scale_color_manual(values = friendly_cols),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 12),
+        legend.position = "right",
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+      )
+  )
+```
+
+
+
+
+# Load data
+
+```{r}
+htap <- readRDS("/data/data_mbouamboua/10x.htap/bmp9/outs/htap.rds")
+
+htap@meta.data <- htap@meta.data[, c("orig.ident","nCount_RNA","nFeature_RNA","nCount_HTO","nFeature_HTO","HTO_maxID","HTO_secondID","HTO_margin","HTO_classification","HTO_classification.global","hash.ID","percent.mito","percent.ribo","dropouts" ,"LIBRARY","TAG","BMP9","PHENOTYPE","SAMPLE","nCount_SCT","nFeature_SCT","SCT_snn_res.0.3","seurat_clusters")] 
+
+colnames(htap@meta.data) <- c("orig.ident","nCount_RNA","nFeature_RNA","nCount_HTO","nFeature_HTO","HTO_maxID","HTO_secondID","HTO_margin","HTO_classification","HTO_classification.global","hash.ID","percent.mito","percent.ribo","dropouts","library","tag","bmp9","phenotype","sample","nCount_SCT","nFeature_SCT","SCT_snn_res.0.3","seurat_clusters")
+View(htap@meta.data)
+
+Idents(htap) <- "sample"
+htap[["condition"]]=""
+htap@meta.data[htap@meta.data$sample %in% c("C685116", "C686518","C681725", "C676136", "C681086"), "condition"] <- "CTRL"
+htap@meta.data[htap@meta.data$sample %in% c("C685116.BMP9","C686518.BMP9","C681725.BMP9","C676136.BMP9","C681086.BMP9"), "condition"] <- "CTRL+BMP9"
+htap@meta.data[htap@meta.data$sample %in% c("H230", "H231", "H247","H248","H250"), "condition"] <- "PAH"
+htap@meta.data[htap@meta.data$sample %in% c("H230.BMP9","H231.BMP9","H247.BMP9","H248.BMP9","H250.BMP9"), "condition"] <- "PAH+BMP9"
+
+```
+
+
+```{r }
+DefaultAssay(htap) <- "RNA"
+VlnPlot(htap, features = c("nCount_RNA","nFeature_RNA", "percent.mito"), group.by = "seurat_clusters", stack = T, flip = T) + NoLegend()
+```
+
+# Remove cluster 11
+
+```{r}
+Idents(htap) <- "seurat_clusters"
+htap <- subset(htap, idents = 11, invert = T)
+DimPlot(htap, group.by = "seurat_clusters", label = T)
+```
+
+
+
+```{r fig.width=4, fig.height=4}
+htap <- SetIdent(htap, value="seurat_clusters")
+mnmat <- c()
+uniq <- unique(htap@active.ident)
+htap@meta.data$cluster <- htap@active.ident
+for(i in 1:length(uniq)){
+  mnmat <- cbind(mnmat, apply(as.matrix(htap@assays$integrated@data[, htap@meta.data$cluster==uniq[i]]), 1, mean))
+}
+colnames(mnmat) <- as.vector(unique(htap@active.ident))
+ct=cor(mnmat)
+p <- pheatmap(ct, cluster_rows=TRUE, cluster_cols=TRUE, fontsize = 8, clustering_method = "complete",
+         #main = "Cell cluster correlations",
+         #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50)
+         )
+
+```
+
+
+# Find Subclusters
+
+```{r subscluster}
+DefaultAssay(htap) <- "integrated"
+Idents(htap) <- "seurat_clusters"
+htap <- FindNeighbors(htap)
+htap <- FindSubCluster(
+  object = htap,
+  cluster = c(7),
+  resolution = 0.5,
+  subcluster.name = "c7",
+  graph.name = "SCT_snn",
+  algorithm = 1)
+
+Idents(htap) <- "c7"
+htap <- FindSubCluster(
+  object = htap,
+  cluster = c(8),
+  resolution = 0.0001,
+  subcluster.name = "c8",
+  graph.name = "SCT_snn",
+  algorithm = 1)
+
+Idents(htap) <- "c8"
+htap <- FindSubCluster(
+  object = htap,
+  cluster = 10,
+  resolution = 0.2,
+  subcluster.name = "subclusters",
+  graph.name = "SCT_snn",
+  algorithm = 1)
+
+
+DimPlot(htap, label = T, group.by = "subclusters")
+DimPlot(htap, label = T, group.by = "bmp9") + NoLegend()
+
+```
+
+
+
+
+# Cell annotation
+
+```{r fig.width=7, fig.height=5}
+
+Idents(htap) <- "subclusters"
+htap[["clusters"]]=""
+htap@meta.data[htap@meta.data$subclusters %in% c(0), "clusters"] <- "C1"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_0", "7_3", "7_5"), "clusters"] <- "C2"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_0","8_2","8_4", "8_5", "8_7", "8_11", "8_12", "8_13", "8_14","8_15","8_16","8_21", "8_25","8_27"), "clusters"] <- "C3"
+htap@meta.data[htap@meta.data$subclusters %in% c(1), "clusters"] <- "C4"
+htap@meta.data[htap@meta.data$subclusters %in% c(4), "clusters"] <- "C5"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_1"), "clusters"] <- "C6"
+
+htap@meta.data[htap@meta.data$subclusters %in% c(3), "clusters"] <- "C1'"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_1", "7_2", "7_4"), "clusters"] <- "C2'"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_1","8_3", "8_6", "8_8", "8_9", "8_10", "8_17", "8_18", "8_19", "8_20","8_22","8_23","8_24", "8_26","8_28","8_29","8_30", 9), "clusters"] <- "C3'"
+htap@meta.data[htap@meta.data$subclusters %in% c(2), "clusters"] <- "C4'"
+htap@meta.data[htap@meta.data$subclusters %in% c(6), "clusters"] <- "C5'"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_0"), "clusters"] <- "C6'"
+htap@meta.data[htap@meta.data$subclusters %in% c(5), "clusters"] <- "Cycling cells"
+
+
+# ALK1
+Idents(htap) <- "clusters"
+htap[["ALK1"]]=""
+htap[['ALK1']][which(htap@meta.data$clusters == "C1"),] <- "ALK1 low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2"),] <- "ALK1 low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3"),] <- "ALK1 low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4"),] <- "ALK1 low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5"),] <- "ALK1 hight"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6"),] <- "ALK1 low"
+
+htap[['ALK1']][which(htap@meta.data$clusters == "C1'"),] <- "ALK1 low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2'"),] <- "ALK1 low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3'"),] <- "ALK1 low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4'"),] <- "ALK1 low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6'"),] <- "ALK1 low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5'"),] <- "ALK1 hight+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "Cycling cells"),] <- "Cycling cells"
+
+DimPlot(htap, group.by = "clusters", label = T, cols = my_palette$cellColors)
+DimPlot(htap, group.by = "ALK1", label = T)
+
+
+saveRDS(htap, "/data/data_mbouamboua/10x.htap/bmp9/outs/htap.rds")
+Idents(htap) <- "clusters"
+htap <- subset(htap, idents = c("Cycling cells"), invert = T)
+saveRDS(htap, "/data/data_mbouamboua/10x.htap/bmp9/outs/htap_without_cycling.rds")
+
+```
+
+
+
+```{r}
+# VlnPlot(object = htap, features = c("BMPR2"),  
+#         cols =  c("lightseagreen", "gray50", "darkgreen","red4","red", "turquoise4","black", "yellow4","royalblue1","lightcyan3", "peachpuff3", "khaki3", "gray20","orange2","royalblue4", "yellow3","gray80", "darkorchid1","lawngreen", "plum2", "darkmagenta"))
+```
+
+
+# Figures
+
+# UMAP
+
+```{r fig.width=14, fig.height=10}
+
+p1 <- DimPlot(htap, group.by = "phenotype", label = F, cols = c("#00BFC4", "#F8766D")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+
+pdf(paste(output.dir, "figures" , "umap_BMP9.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p1)
+dev.off()
+
+p2 <- DimPlot(htap, group.by = "condition", label = F, cols = c("#999933", "#AA4499", "#44AA99","#661100")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+pdf(paste(output.dir, "figures" , "umap_condition.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p2)
+dev.off()
+
+
+p3 <- DimPlot(htap, group.by = "cluster", label = T, label.size = 3, label.box = T, repel = F, cols = my_palette$cellColors) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+pdf(paste(output.dir, "figures" , "umap_clusters.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p3)
+dev.off()
+
+
+labels <- c(expression("PMECs ALK1"^italic("hight")),
+          expression("PMECs ALK1"^italic("hight")*"+"*"BMP9"),
+          expression("PMECs ALK1"^italic("low")), 
+          expression("PMECs ALK1"^italic("low")*"+"*"BMP9"))
+
+p4 <- DimPlot(htap, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  scale_color_discrete(labels = labels, type = c("#88CCEE", "#CC6677", "#117733", "#DDCC77")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste(output.dir, "figures" , "umap_AKL1.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p4)
+dev.off()
+
+
+plot_grid(p1+p2+p3+p4)
+
+pdf(paste(output.dir, "figures" , "umap.pdf", sep = "/"), width = 14, height = 10, useDingbats = FALSE)
+plot_grid(p1+p2+p3+p4)
+dev.off()
+
+```
+
+
+
+
+# Cluster correlation heatmap
+
+```{r fig.width=4, fig.height=4}
+htap <- SetIdent(htap, value="cluster")
+mnmat <- c()
+uniq <- unique(htap@active.ident)
+htap@meta.data$cluster <- htap@active.ident
+for(i in 1:length(uniq)){
+  mnmat <- cbind(mnmat, apply(as.matrix(htap@assays$integrated@data[, htap@meta.data$cluster==uniq[i]]), 1, mean))
+}
+colnames(mnmat) <- as.vector(unique(htap@active.ident))
+ct=cor(mnmat)
+p <- pheatmap(ct, cluster_rows=TRUE, cluster_cols=TRUE, fontsize = 8, clustering_method = "complete",
+         #main = "Cell cluster correlations",
+         #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50)
+         )
+
+pdf(paste("./outs/figures/cluster_correlations.pdf"), width = 4, height = 4, useDingbats = FALSE)
+print(p)
+dev.off()
+```
+
+
+
+# Gene Expressions
+
+```{r fig.width=12, fig.height=5}
+ DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("ACVRL1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK1 (ACVRL1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("ACVR1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK2 (ACVR1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+ guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("BMPR1A"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK3 (BMPR1A)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("ACVR1B"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK4 (ACVR1B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("TGFBR1"),  min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK5 (TGFBR1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p6 <- FeaturePlot(htap, features = c("BMPR1B"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK6 (BMPR1B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p7 <- FeaturePlot(htap, features = c("ACVR1C"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK7 (ACVR1C)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+
+pdf(paste("./outs/figures/featureplot_ALK1_7.pdf"), width = 12, height = 5, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+dev.off()
+```
+
+
+```{r fig.width=16, fig.height=2.5}
+
+DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("BMPR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "BMPRII (BMPR2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("TGFBR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "TGFβRII (TGFBR2)") +
+guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("ACVR2A"), max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ActRIIA (ACVR2A)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("ACVR2B"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ActRIIB (ACVR2B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("AMHR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "lightgrey")) +
+  labs(title = "AMHRII (AMHR2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2,p3,p4,p5,ncol=5)
+
+pdf(paste("./outs/figures/featureplot_BMPR2_AMHR2.pdf"), width = 16, height = 2.5, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,ncol=5)
+dev.off()
+```
+
+
+
+```{r fig.width=6, fig.height=2.5}
+DefaultAssay(htap) <- "RNA"
+
+p1 <- FeaturePlot(htap, features = c("ENG"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "Endoglin (ENG)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("TGFBR3"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "Betaglycan (TGFBR3)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2, ncol = 2)
+
+pdf(paste("./outs/figures/featureplot_ENG_TGFBR3.pdf"), width = 6, height = 2.5, useDingbats = FALSE)
+grid.arrange(p1,p2, ncol = 2)
+dev.off()
+```
+
+
+
+# Expression of type 1, 2, 3 receptors
+
+```{r}
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "AMHR2", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+# Seurat object to dataframe
+
+as.data.frame.Seurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+    # TODO possibly also a warning if it is not a variable gene and an error
+    # if it does not exist also an argument to force though the error ...
+    tmp <- Seurat::FetchData(x, vars = genes, ...)
+    tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+    tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+    
+    if (fix_names) {
+        colnames(tmp) <- make.names(colnames(tmp))
+    }
+    return(tmp)
+}
+
+df <- as.data.frame.Seurat(x = htap, genes = c(type1, type2, type3),  fix_names = TRUE)
+
+# Add cell ID and identity classes
+df$cell <- rownames(df)
+#pbmc$Idents <- identity
+
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3),
+                       variable.name = "Feat", value.name = "Expr")
+
+df
+
+# Box plots
+# ++++++++++++++++++++
+# Plot weight by group and color by group
+library("ggpubr")
+
+# Same as plot e, but hide x-axis labels, change plot.margin to reduce spacing between plots
+g1 <-ggboxplot(df,
+                x = "Feat", 
+                y = "Expr", 
+                #color = "Feat", 
+                #palette = dittoColors(),
+                 xlab = "Receptors",
+                 ylab = "Expression level",
+               fill = "ident"
+                )+
+        scale_y_continuous(position="left") +
+        #facet_grid(rows = vars(ident), scales = "free", switch = "x") +
+        theme_cowplot(font_size = 12) +
+        theme(legend.position = "top", panel.spacing = unit(0, "lines"),
+              panel.background = element_rect(fill = NA, color = "black"),
+              plot.margin = unit(c(0,0,0,0), "cm"),
+              strip.background = element_blank(),
+              strip.text = element_text(face = "bold"),
+              strip.text.y.left = element_text(angle = 0),
+              axis.title.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              axis.text.x = element_blank(),
+              plot.title = element_text(hjust = 0.5, face = "bold")) +
+  labs(title = "Expression of type 1, 2 & 3 receptors", fill = "")
+
+
+#Add gene grouping annotation
+# Create grouping info
+
+dt <- data.frame(x = levels(df$Feat), 
+                 group = c(rep("Type 1", 7), rep("Type 2", 5), rep("Type 2", 2)), 
+                 stringsAsFactors = FALSE)
+
+dt$x <- factor(dt$x, levels = levels(df$Feat))
+dt$group <- factor(dt$group)
+
+#color <- c("cyan", "pink", "green", "darkorange")
+# Use geom_tile() to add grouping colorings and geom_text() to add grouping labels
+# guides() is used to specify some aesthetic parameters of legend key
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  geom_tile() + theme_bw(base_size = 12) +
+        scale_fill_manual(values = c("#4facc5", "#4e6c6c", "red")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+        guides(fill = guide_legend(label.position = "right",
+                             title.theme = element_blank(), 
+                             keyheight = 0.5, 
+                             nrow = 1)) +
+        theme(legend.position = "bottom", 
+              legend.justification = "left",
+              legend.margin = margin(0,0,0,0), 
+              legend.box.margin = margin(-10,05,0,0),
+              panel.spacing = unit(0, "lines"),
+              panel.background = element_blank(),
+              panel.border = element_blank(),
+              plot.background = element_blank(),
+              plot.margin = unit(c(0,0,0,0), "cm"),
+              axis.title.x = element_blank(),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.9, color = "black"),
+              axis.title.y = element_blank(),
+              axis.ticks.y = element_blank(),
+              axis.text.y = element_blank()) + xlab("")
+              
+# Use patchwork to join plots
+g1 + g2 + plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+```
+
+
+# CTRL vs HTAP analysis
+## Comparer la proportion de cellules Alk1 low/high dans les 5 lignée de CTR et dans les 5 lignée d’HTAP
+
+```{r}
+#  create plot1
+Idents(htap) <- "condition"
+sub <- subset(htap, idents = c("CTRL", "PAH"))
+
+Idents(sub) <- "ALK1"
+DimPlot(sub)
+freq_table <- prop.table(x = t(table(sub@active.ident, sub@meta.data[, "CONDITION"])), margin = 2)*100
+#formattable(freq_table)
+freq_table <- reshape2::melt(freq_table)
+plot1 <- ggplot(freq_table, aes(fill=Var1, y=value, x=Var2)) +
+  geom_bar(position="stack", stat="identity", col="black", show.legend = T) +
+  #theme_void() +
+  theme_classic() +
+  labs(x=" ", y="nCells(%)", fill = "conditions") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 0, 
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   color = "black"),
+        legend.key.size = unit(0.3, "cm"),
+        axis.text.y = element_text()) +
+  #scale_fill_manual(values = c("#0570b0", "#d7301f")) +
+  coord_flip() #+
+    #geom_text(aes(label=round(value, digits = 0)), position = position_stack(vjust = 0.5)) 
+print(plot1)
+```
+
+
+
+
+
+
+# Subset CTRL, CTRL+BMP9 datasets
+
+```{r}
+Idents(htap) <- "CONDITION"
+ctrl <- subset(htap, idents = c("CTRL", "CTRL.BMP9"))
+Idents(ctrl) <- "cluster"
+ctrl <- subset(ctrl, idents = c("C6'"), invert = TRUE)
+
+```
+
+
+```{r fig.width=14, fig.height=10}
+
+p1 <- DimPlot(ctrl, group.by = "BMP9", label = F, cols = c("#00BFC4", "#F8766D")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+pdf(paste("./outs/figures/umap_BMP9.pdf"), width = 7, height = 5, useDingbats = FALSE)
+print(p1)
+dev.off()
+
+p2 <- DimPlot(ctrl, group.by = "condition", label = F, cols = c("#999933", "#AA4499", "#44AA99","#661100")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+pdf(paste("./outs/figures/umap_condition.pdf"), width = 7, height = 5, useDingbats = FALSE)
+print(p2)
+dev.off()
+
+p3 <- DimPlot(ctrl, group.by = "cluster", label = T, label.size = 3, label.box = T, repel = F, cols = my_palette$cellColors) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+pdf(paste("./outs/figures/umap_clusters.pdf"), width = 6, height = 5, useDingbats = FALSE)
+print(p3)
+dev.off()
+
+labels <- c(expression("PMECs ALK1"^italic("hight")),
+          expression("PMECs ALK1"^italic("hight")*"+"*"BMP9"),
+          expression("PMECs ALK1"^italic("low")), 
+          expression("PMECs ALK1"^italic("low")*"+"*"BMP9"))
+
+p4 <- DimPlot(ctrl, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  scale_color_discrete(labels = labels, type = c("#88CCEE", "#CC6677", "#117733", "#DDCC77")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste("./outs/figures/umap_AKL1.pdf"), width = 7, height = 5, useDingbats = FALSE)
+print(p4)
+dev.off()
+
+
+labels <- c(expression("PMECs ALK1"^italic("hight")),
+          expression("PMECs ALK1"^italic("hight")*"+"*"BMP9"),
+          expression("PMECs ALK1"^italic("low")), 
+          expression("PMECs ALK1"^italic("low")*"+"*"BMP9"))
+
+p5 <- DimPlot(ctrl, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  #scale_color_discrete(labels = labels, type = c("#88CCEE", "#CC6677", "#117733", "#DDCC77")) + 
+  scale_color_discrete(labels = labels, type = c("red", "gray", "blue", "gray")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste("./outs/figures/umap_AKL1_low_ALK1_hight.pdf"), width = 7, height = 5, useDingbats = FALSE)
+print(p5)
+dev.off()
+
+labels <- c(expression(""),
+          expression("ALK1"^italic("hight")*"+"*"BMP9"),
+          expression(""), 
+          expression("ALK1"^italic("low")*"+"*"BMP9"))
+
+p6 <- DimPlot(ctrl, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  #scale_color_discrete(labels = labels, type = c("#88CCEE", "#CC6677", "#117733", "#DDCC77")) + 
+  scale_color_discrete(labels = labels, type = c("gray","red", "gray",  "blue")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste("./outs/figures/umap_AKL1_low_bmp_ALK1_hight_bmp.pdf"), width = 7, height = 5, useDingbats = FALSE)
+print(p6)
+dev.off()
+
+
+
+plot_grid(p1+p2+p3+p4+p5+p6)
+
+pdf(paste("./outs/figures/umap.pdf"), width = 12, height = 5, useDingbats = FALSE)
+plot_grid(p1+p2+p3+p4+p5+p6)
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Shiny app
+
+```{r}
+app <- sub
+DefaultAssay(app) <- "RNA"
+app <- NormalizeData(app) %>% FindVariableFeatures() %>% ScaleData()
+scConf1 = createConfig(app)
+app@meta.data <-  subset(app@meta.data[, c("SAMPLE","BMP9","condition", "cluster", "ALK1", "percent.mito","percent.ribo" , "dropouts",  "nCount_SCT","nFeature_SCT")])
+
+
+DefaultAssay(app) <- "RNA"
+# Create ShinyCell config                    
+scConf1 = createConfig(app)
+checkConfig(scConf1, app)
+makeShinyApp(app, 
+             scConf1, 
+             gene.mapping = TRUE, 
+             gex.assay = "RNA", 
+             gex.slot = "counts",
+             default.gene1 = "PROX1", 
+             default.gene2 = "GJA5",
+             default.multigene = c("PROX1", "TXNIP", "VEGFC", "GJA5", "APLN", "CENPF", "IFI27", "LTB", "S100A4", "CRYAB", "FTPI2"),
+             shiny.title = "PAH-BMP Human Lung Cell Atlas",
+             shiny.dir = "sub.bmp_shinyApp/"
+             ) 
+rm(app)
+```
+
+

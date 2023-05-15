@@ -1,0 +1,462 @@
+---
+title: "10X HTAP NucSeq - DE Pseudobulk "
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    df_print: kable
+    highlight: espresso  ## Theme for the code chunks
+    number_sections: yes  ## Adds number to headers (sections)
+    theme: flatly  ## CSS theme for the HTML page
+  html_notebook:
+    code_folding: none
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+
+```{r echo = FALSE}
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      # record the current time before each chunk
+      now <<- Sys.time()
+    } else {
+      # calculate the time difference after a chunk
+      res <- difftime(Sys.time(), now)
+      # return a character string to show the time
+      paste0('Time for this code chunk to run : ', round(x = res, digits = 3), ' s')
+    }
+  }
+}))
+
+# Option chunk
+knitr::opts_chunk$set(
+  time_it = FALSE,
+  echo = TRUE,
+  cache = FALSE,
+  cache.lazy = FALSE,
+  tidy = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10
+)
+
+## Setting Paramaters
+the.seed <- 1337L # Computational Parameters
+
+```
+
+# Setting directories
+
+```{r dir}
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+```
+
+
+
+# Required packages
+
+```{r fig.width=10, fig.height=8}
+suppressMessages(require(Seurat))
+suppressMessages(require(dplyr))
+suppressMessages(require(Libra))
+suppressMessages(require(Matrix.utils))
+suppressMessages(require(edgeR))
+suppressMessages(require(magrittr))
+suppressMessages(require(Matrix))
+suppressMessages(require(purrr))
+suppressMessages(require(S4Vectors))
+suppressMessages(require(tibble))
+suppressMessages(require(apeglm))
+suppressMessages(require(png))
+suppressMessages(require(DESeq2))
+suppressMessages(require(stringr))
+
+source("/data/data_mbouamboua/R_scripts/upsetPlotFromList.R")
+set.seed(the.seed)
+```
+
+
+
+# Load data
+
+
+```{r}
+htap <- readRDS("/data/data_mbouamboua/10x.htap/bmp9/outs/rds/htap.rds")
+
+Idents(htap) <- "sample"
+htap[["condition"]]=""
+htap@meta.data[htap@meta.data$sample %in% c("C685116", "C686518","C681725", "C676136", "C681086"), "condition"] <- "CTRL"
+htap@meta.data[htap@meta.data$sample %in% c("C685116.BMP9","C686518.BMP9","C681725.BMP9","C676136.BMP9","C681086.BMP9"), "condition"] <- "CTRL+BMP9"
+htap@meta.data[htap@meta.data$sample %in% c("H230", "H231", "H247","H248","H250"), "condition"] <- "PAH"
+htap@meta.data[htap@meta.data$sample %in% c("H230.BMP9","H231.BMP9","H247.BMP9","H248.BMP9","H250.BMP9"), "condition"] <- "PAH+BMP9"
+
+# View(unique(htap@meta.data[, c("condition", "ALK1", "sample")]))
+# 
+# DimPlot(htap, group.by = "condition")
+# DimPlot(htap, group.by = "ALK1")
+# 
+# 
+# Idents(htap) <- "sample"
+# htap[["alk1"]]=""
+# htap@meta.data[htap@meta.data$condition %in% c("CTRL"), "alk1"] <- 
+# htap@meta.data[htap@meta.data$condition %in% c("CTRL+BMP9"), "alk1"] <- 
+# htap@meta.data[htap@meta.data$condition %in% c("PAH"), "alk1"] <- 
+# htap@meta.data[htap@meta.data$condition %in% c("PAH+BMP9"), "alk1"] <- 
+# 
+
+
+```
+
+
+
+
+# Comparer le transcriptome CTR vs HTAP, dans les clusters Alk1 low et Alk1 high
+## A baseline
+### DE
+```{r}
+Seurat::Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 hight", "ALK1 low"))
+Seurat::Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH", "CTRL"))
+metadata <- data.frame(matrix(NA, nrow = dim(sub@meta.data)[1], ncol = 3))
+rownames(metadata) <- rownames(sub@meta.data)
+colnames(metadata) <- c("cell_type","replicate","label")
+Seurat::Idents(sub) <- "ALK1"
+metadata$cell_type <- factor(gsub(" ", "_", sub@active.ident))
+metadata$replicate <- factor(sub@meta.data$sample)
+metadata$label <- factor(sub@meta.data$condition, levels = c("CTRL", "PAH"))
+Seurat::DefaultAssay(sub) <- "RNA"
+sub <- Seurat::NormalizeData(sub)
+#sub@assays$RNA@data
+counts <- Seurat::GetAssayData(sub, assay = "RNA", slot = "data")
+# de_method = "limma"
+# de_type = "trend"
+de_method = "edgeR"
+de_type = "LRT"
+DE = Libra::run_de(counts, meta=metadata, de_family = 'pseudobulk', de_method = de_method, de_type = de_type)
+head(DE)
+matrices = Libra::to_pseudobulk(counts, meta = metadata)
+saveRDS(DE, paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low", "de.rds", sep = "/"))
+saveRDS(matrices, paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low", "matrices.rds", sep = "/"))
+
+```
+
+
+
+### Plots
+
+```{r fig.width=10, fig.height=5}
+# Define colors
+myPalette <- list()
+myPalette$sampleColor <- setNames(
+colorRampPalette(RColorBrewer::brewer.pal(n = 11, name = 'RdBu'))(10),
+  #viridis::viridis(14),
+  unique(sub@meta.data$sample)
+)
+
+
+myPalette$myCondColor <- setNames(
+  c("#d7301f", "#0570b0"),
+  c("PAH","CTRL")
+)
+
+ann_colors = list(sample = myPalette$sampleColor, condition = myPalette$myCondColor)
+
+
+# Load data
+DE <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low", "de.rds", sep = "/"))
+matrices <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low", "matrices.rds", sep = "/"))
+plot_list=list()
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+    cell_type <- cell_types[i]
+    DEsub <- DE[DE$cell_type==cell_type,]
+    sig_res <- dplyr::filter(DEsub, p_val <= 0.05) %>% dplyr::arrange(p_val)
+    sig_genes <- sig_res %>% dplyr::arrange(p_val) %>% dplyr::pull(gene) %>% head(n=50)
+    
+    if(length(sig_genes) > 1){
+    
+        # near here a log2(CPM)
+        normalized_counts <- log(edgeR::cpm(matrices[[cell_type]])+1,2)
+        df <- rowMeans(normalized_counts)
+        df <- as.data.frame(df)
+        
+        df$gene <- rownames(df)
+        colnames(df) <- c("baseMean","gene")
+        m <- merge(DEsub, df, on='gene')
+        maplot <- m[, c("baseMean", "avg_logFC", "p_val")]
+        rownames(maplot) <- m$gene
+        colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+        
+        y=ggpubr::ggmaplot(maplot, 
+                             main = "",
+                             fdr = 0.05, 
+                             fc = 0.5,
+                             size = 2.0,
+                             #palette = c("#f77f00", "#90be6d", "#d3d3d3"),
+                             #palette = c("#ae2012","#d3d3d3", "#005f73"),
+                             genenames = as.vector(rownames(maplot)),
+                             legend = "right", 
+                             top = 50,
+                             alpha = 0.5,
+                             select.top.method = c("padj"),
+                             font.label = c("bold", 8), 
+                             label.rectangle = FALSE,
+                             font.legend = c("bold", 8), 
+                             font.axis = c("bold", 8), 
+                             font.main = c("bold", 24, "#ba181b"), 
+                             xlab = "Average epression",
+                             ylab = "log2(FoldChange)",
+                             ggtheme = ggplot2::theme_bw(base_line_size = 0))
+        
+
+        meta <- as.data.frame(stringr::str_split_fixed(colnames(normalized_counts), ":", 2))
+        rownames(meta) <- colnames(normalized_counts)
+        colnames(meta) <- c("sample","condition")
+        x <- pheatmap::pheatmap(normalized_counts[sig_genes,],
+                     annotation_col = meta,
+                     annotation_colors = ann_colors,
+                     #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50),
+                     color = colorRampPalette(c("purple", "black", "yellow"))(100),
+                     fontsize = 8,
+                     show_colnames = FALSE,
+                     show_rownames = TRUE,
+                     cluster_cols = TRUE,
+                     cluster_rows = TRUE)
+      p <- print(cowplot::plot_grid(y, x[[4]], labels = cell_type))
+
+pdf(file=paste(output.dir, "/markers/", "DE_pseudobulk/", "alk1.hight.vs.low/", cell_type, "_",de_method,"_",de_type ,"_de_pb_ctrl_vs_pah.pdf", sep = ""), width = 10, height = 6, useDingbats = F)
+print(p)
+dev.off()
+
+    }
+}
+
+```
+
+
+### Barplot
+
+```{r fig.width=5, fig.height=12}
+library(ggplot2)
+res.dir <- paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low/", sep = "/")
+source("/data/data_mbouamboua/R_scripts/tf.function.R")
+
+# Read DE PAH vs. CTRL results from Seurat
+DE <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.hight.vs.low", "de.rds", sep = "/"))
+
+# Prepare variable of the unique cell type
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+  cell_type <- cell_types[i]
+  DEsub <- data.frame()
+  DEsub <- DE[DE$cell_type==cell_type,]
+  
+  # Unique markers per celltype
+  DEsub <- DEsub[order(DEsub$p_val_adj <= 0.05),] 
+  uniq_genes <-  DEsub %>% group_by(gene) %>%  dplyr::summarize(n=n()) %>%  dplyr::filter(n==1)
+  DEsub <-  DEsub[DEsub$gene %in% uniq_genes$gene,]
+  rownames(DEsub) <- NULL
+
+  # Prepare avg logFC matrix
+  mat <- DEsub %>% 
+    tibble::column_to_rownames("gene") %>%
+    dplyr::select(avg_logFC) %>%
+    as.matrix()
+  
+  if(length(DEsub$gene) > 1){
+    # Plot DE markers
+    p <- plot_top_features(mat, n_top = 50) +
+      labs(title = paste("Pseudobulk EdgeR CTRL vs. PAH "," \n", cell_type, sep = " "), x = "Avg_logFC", y = " ")
+    print(p)
+    pdf(paste(res.dir, cell_type, "_pb_edgeR_ctrl_vs_pah.pdf", sep = ""), width = 5, height = 12, useDingbats = F)
+    print(p)
+    dev.off()
+    
+  }
+}
+
+```
+
+
+
+
+## En présence de BMP9
+### DE
+```{r}
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 hight+BMP9", "ALK1 low+BMP9"))
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH+BMP9", "CTRL+BMP9"))
+metadata <- data.frame(matrix(NA, nrow = dim(sub@meta.data)[1], ncol = 3))
+rownames(metadata) <- rownames(sub@meta.data)
+colnames(metadata) <- c("cell_type","replicate","label")
+Seurat::Idents(sub) <- "ALK1"
+metadata$cell_type <- factor(gsub(" ", "_", sub@active.ident))
+metadata$replicate <- factor(sub@meta.data$sample)
+metadata$label <- factor(sub@meta.data$condition, levels = c("CTRL+BMP9", "PAH+BMP9"))
+Seurat::DefaultAssay(sub) <- "RNA"
+sub <- Seurat::NormalizeData(sub)
+#sub@assays$RNA@data
+counts <- Seurat::GetAssayData(sub, assay = "RNA", slot = "data")
+# de_method = "limma"
+# de_type = "trend"
+de_method = "edgeR"
+de_type = "LRT"
+DE = Libra::run_de(counts, meta=metadata, de_family = 'pseudobulk', de_method = de_method, de_type = de_type)
+head(DE)
+matrices = Libra::to_pseudobulk(counts, meta = metadata)
+saveRDS(DE, paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low", "de.rds", sep = "/"))
+saveRDS(matrices, paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low", "matrices.rds", sep = "/"))
+
+```
+
+
+
+### Maplot and Heatmap
+
+```{r fig.width=10, fig.height=5}
+# Define colors
+
+myPalette <- list()
+myPalette$sampleColor <- setNames(
+colorRampPalette(RColorBrewer::brewer.pal(n = 11, name = 'RdBu'))(10),
+  #viridis::viridis(14),
+  unique(sub@meta.data$sample)
+)
+
+myPalette$myCondColor <- setNames(
+  c("#d7301f", "#0570b0"),
+  c("PAH+BMP9","CTRL+BMP9")
+)
+ann_colors = list(sample = myPalette$sampleColor, condition = myPalette$myCondColor)
+
+
+DE <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low", "de.rds", sep = "/"))
+matrices <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low", "matrices.rds", sep = "/"))
+plot_list=list()
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+    cell_type <- cell_types[i]
+    DEsub <- DE[DE$cell_type==cell_type,]
+    sig_res <- dplyr::filter(DEsub, p_val <= 0.05) %>% dplyr::arrange(p_val)
+    sig_genes <- sig_res %>% dplyr::arrange(p_val) %>% dplyr::pull(gene) %>% head(n=50)
+    
+    if(length(sig_genes) > 1){
+    
+        # near here a log2(CPM)
+        normalized_counts <- log(edgeR::cpm(matrices[[cell_type]])+1,2)
+        df <- rowMeans(normalized_counts)
+        df <- as.data.frame(df)
+        
+        df$gene <- rownames(df)
+        colnames(df) <- c("baseMean","gene")
+        m <- merge(DEsub, df, on='gene')
+        maplot <- m[, c("baseMean", "avg_logFC", "p_val")]
+        rownames(maplot) <- m$gene
+        colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+        
+        y=ggpubr::ggmaplot(maplot, 
+                             main = "",
+                             fdr = 0.05, 
+                             fc = 0.5,
+                             size = 2.0,
+                             #palette = c("#f77f00", "#90be6d", "#d3d3d3"),
+                             #palette = c("#ae2012","#d3d3d3", "#005f73"),
+                             genenames = as.vector(rownames(maplot)),
+                             legend = "right", 
+                             top = 50,
+                             alpha = 0.5,
+                             select.top.method = c("padj"),
+                             font.label = c("bold", 8), 
+                             label.rectangle = FALSE,
+                             font.legend = c("bold", 8), 
+                             font.axis = c("bold", 8), 
+                             font.main = c("bold", 24, "#ba181b"), 
+                             xlab = "Average epression",
+                             ylab = "log2(FoldChange)",
+                             ggtheme = ggplot2::theme_bw(base_line_size = 0))
+        
+
+        meta <- as.data.frame(stringr::str_split_fixed(colnames(normalized_counts), ":", 2))
+        rownames(meta) <- colnames(normalized_counts)
+        colnames(meta) <- c("sample","condition")
+        x <- pheatmap::pheatmap(normalized_counts[sig_genes,],
+                     annotation_col = meta,
+                     annotation_colors = ann_colors,
+                     #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50),
+                     color = colorRampPalette(c("purple", "black", "yellow"))(100),
+                     fontsize = 8,
+                     show_colnames = FALSE,
+                     show_rownames = TRUE,
+                     cluster_cols = TRUE,
+                     cluster_rows = TRUE)
+      p <- print(cowplot::plot_grid(y, x[[4]], labels = cell_type))
+
+pdf(file=paste(output.dir, "/markers/", "DE_pseudobulk/", "alk1.bmp9.hight.vs.low/", cell_type, "_",de_method,"_",de_type ,"_de_pb_ctrl_vs_pah.pdf", sep = ""), width = 10, height = 6, useDingbats = F)
+print(p)
+dev.off()
+
+    }
+}
+
+```
+
+
+### Barplot
+
+```{r fig.width=5, fig.height=12}
+library(ggplot2)
+res.dir <- paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low/", sep = "/")
+source("/data/data_mbouamboua/R_scripts/tf.function.R")
+
+# Read DE PAH vs. CTRL results from Seurat
+DE <- readRDS(paste(output.dir, "markers", "DE_pseudobulk", "alk1.bmp9.hight.vs.low", "de.rds", sep = "/"))
+
+# Prepare variable of the unique cell type
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+  cell_type <- cell_types[i]
+  DEsub <- data.frame()
+  DEsub <- DE[DE$cell_type==cell_type,]
+  
+  # Unique markers per celltype
+  DEsub <- DEsub[order(DEsub$p_val_adj <= 0.05),] 
+  uniq_genes <-  DEsub %>% group_by(gene) %>%  dplyr::summarize(n=n()) %>%  dplyr::filter(n==1)
+  DEsub <-  DEsub[DEsub$gene %in% uniq_genes$gene,]
+  rownames(DEsub) <- NULL
+
+  # Prepare avg logFC matrix
+  mat <- DEsub %>% 
+    tibble::column_to_rownames("gene") %>%
+    dplyr::select(avg_logFC) %>%
+    as.matrix()
+  
+  if(length(DEsub$gene) > 1){
+    # Plot DE markers
+    p <- plot_top_features(mat, n_top = 50) +
+      labs(title = paste("Pseudobulk EdgeR CTRL vs. PAH "," \n", cell_type, sep = " "), x = "Avg_logFC", y = " ")
+    print(p)
+    pdf(paste(res.dir, cell_type, "_pb_edgeR_ctrl_vs_pah.pdf", sep = ""), width = 5, height = 12, useDingbats = F)
+    print(p)
+    dev.off()
+    
+  }
+}
+
+```

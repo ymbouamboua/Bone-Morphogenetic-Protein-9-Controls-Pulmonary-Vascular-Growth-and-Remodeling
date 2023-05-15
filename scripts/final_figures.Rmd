@@ -1,0 +1,413 @@
+---
+title: "10x HTAP BMP9 - FINAL FIGURES"
+author: "Yvon Mbouamboua<BR>mbouamboua@ipmc.cnrs.fr"
+output:
+  html_document: default
+  html_notebook:
+    highlight: textmate  ## Theme for the code chunks
+    number_sections: yes  ## Adds number to headers (sections)
+    theme: flatly  ## CSS theme for the HTML page
+    toc: yes  ## Adds a table of content
+date: 'Compiled: `r Sys.Date()`'
+---
+
+
+
+# Seting pamaters
+
+```{r setup, include=T, warning=FALSE}
+
+options(future.globals.maxSize = 80000*1024^2)
+work.dir <- "/data/data_mbouamboua/projects/10x_htap_bmp9"
+out.dir <-  paste(work.dir, "outs.04.05.2023", sep = "/")
+set.seed(1337L)
+
+```
+
+# R packages and helper functions
+
+```{r}
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+source("/data/data_mbouamboua/apps/4743/utilities.R")
+```
+
+
+# Load data
+
+```{r }
+
+# Read in htap dataset
+htap <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/outs/rds/htap_10_clusters_without_cycling.rds")
+# Remove Sexual Sex‐Determining Genes
+htap <- htap[!grepl("XIST|RPS4Y1|AC006157.1|ZFY|ZFY-AS1|LINC00278|PCDH11Y|USP9Y|DDX3Y|UTY|TMSB4Y|TTTY14|AC010889.1|KDM5D|EIF1AY|RPS4Y2", rownames(htap)), ]
+# Remove MT, HB, Ribo genes
+htap <- htap[!grepl("^MT-|^MTRNR|^RP[LS][[:digit:]]", rownames(htap)), ]
+# Normalize dataset
+DefaultAssay(htap) <- "RNA"
+htap <- NormalizeData(htap)
+invisible(gc())
+# Plots
+DimPlot(htap, group.by = "ALK1", label = T)
+DimPlot(htap, group.by = "clusters", label = T)
+DimPlot(htap, group.by = "condition")
+DimPlot(htap, group.by = "sample")
+
+```
+
+
+# Enrichment gene ontology
+
+## Fig 2B: 10 GO BP terms ALK1 High
+
+```{r fig.width=4, fig.height=2.5, warning=FALSE}
+
+### DE ALK1 CTRL
+dir <- paste(out.dir, "markers/", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+Idents(htap) <- "clusters"
+sub <- subset(htap, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = "CTRL", invert = F)
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+Idents(sub) <- "ALK1"
+markers <- FindAllMarkers(sub, only.positif = F, assay = "RNA")
+write.table(markers, file=paste(dir, "DE_ALK1_Low_High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
+
+## GSEA
+markers <- read.delim(file = paste(out.dir, "markers/DE_ALK1_Low_High.tsv", sep = "/"), sep = "\t")
+markers <- markers %>% dplyr::filter(avg_log2FC > 0 & p_val_adj <= 0.05 & cluster == "ALK1 High")
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+go <- clusterProfiler::gseGO(gene = geneList, 
+                                 OrgDb = org.Hs.eg.db::org.Hs.eg.db, 
+                                 ont = "BP",
+                                 minGSSize = 1, 
+                                 maxGSSize = 10000,
+                                 pAdjustMethod = "none",
+                                 keyType = "SYMBOL")
+
+results <- as_tibble(go) %>% 
+  mutate(Description = stringr::str_to_title(.data$Description)) 
+head(results)
+go@result <- results
+saveRDS(object = go, file = paste(out.dir, "GSEA/DE_ALK1_High_GO_BP.rds", sep = "/"))
+
+terms.to.plot <- c("Sprouting Angiogenesis", 
+                   "Regulation Of Angiogenesis", 
+                   "Endothelial Cell Migration", 
+                   "Endothelial Cell Proliferation",
+                   "Angiogenesis", 
+                   "Cell Motility",
+                   "Cell Migration",
+                   "Regulation Of Cell Motility", 
+                   "Regulation Of Cell Migration", 
+                   "Tube Development")
+
+enrichplot::dotplot(go, showCategory = terms.to.plot) +
+  ylab("Gene Ontology") + 
+  theme(
+    axis.text.x = element_text(size = 6, color = "black", family = "Helvetica"),
+    axis.text.y = element_text(size = 6, color = "black", family = "Helvetica",),
+    axis.title = element_text(size = 6, color = "black", family = "Helvetica", face="italic"),
+    plot.title = element_text(hjust = 0.5, size = 10,family = "Helvetica", face = "italic"),
+    legend.title = element_text(size = 6, color = "black", family = "Helvetica"),
+    legend.text = element_text(size = 6, hjust = 1, family = "Helvetica"),
+    legend.margin = margin(-0.2,0,0,0, unit="cm"),
+    legend.key.height = unit(0.2, 'cm'),
+    legend.key.width = unit(0.2, 'cm')) +
+  scale_size_continuous(range=c(2, 5)) +
+  ggtitle(expression(italic("ALK1")^italic("High")))
+
+  ggsave(paste(out.dir, "10_terms_ALK1_High_enrichGO_BP.pdf", sep = "/"), width = 3.5, height = 2.2)
+
+
+```
+
+
+
+
+
+
+```{r fig.width=4, fig.height=2}
+
+# markers <- read.delim(file = paste(out.dir, "markers/DE_ALK1_Low_High.tsv", sep = "/"), sep = "\t")
+# markers <- markers %>% dplyr::filter(avg_log2FC > 0 & p_val_adj <= 0.05)
+# 
+# plot_all_cluster_go(markers = markers, 
+#                 topn = 100000, 
+#                 category = 50, 
+#                 org = "human", 
+#                 ont = "BP", 
+#                 outdir = out.dir,
+#                 outname = "ALK1_High_Low")
+# 
+# res <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/outs.04.05.2023/GO/ALK1_High_Low/ALK1 High_enrichGO_BP.rds")
+# 
+# df <- as_tibble(res) %>% 
+#     arrange(.data$p.adjust) %>% 
+#     mutate(Description = stringr::str_to_title(.data$Description)) %>% 
+#     mutate(Description = fct_reorder(.data$Description, dplyr::desc(.data$p.adjust)))
+# View(df)
+# 
+# terms.to.plot <- c("Sprouting Angiogenesis", 
+#                    "Regulation Of Angiogenesis", 
+#                    "Endothelial Cell Migration", 
+#                    "Endothelial Cell Proliferation",
+#                    "Angiogenesis", 
+#                    "Cell Motility",
+#                    "Cell Migration",
+#                    "Regulation Of Cell Motility", 
+#                    "Regulation Of Cell Migration", 
+#                    "Tube Development")
+# 
+# df <- subset(df, Description %in% terms.to.plot)
+# 
+# ggplot(df, mapping = aes(x = .data$Description, y = -log10(.data$p.adjust))) + 
+#   geom_bar(aes(fill = df$Count), stat = "identity") + 
+#   scale_fill_gradientn("Gene Count", colours = colorspace::diverge_hcl(7), guide = "colourbar") +
+#   coord_flip() + 
+#   xlab("Gene Ontology") + 
+#   ylab(bquote("-log"[10] ~ " p.adjust")) +
+#   theme_bw() +
+#       theme(axis.text = element_text(size = 6, color = "black"),
+#           axis.title = element_text(size = 6, color = "black"),
+#            plot.title = element_text(hjust = 0.5, size = 8),
+#           legend.title=element_text(size = 5, color = "black"),
+#           legend.text = element_text(size = 5, hjust = 1),
+#           legend.margin=margin(0,8,0,0),
+#           legend.box.margin=margin(-8,-8,-8,-8),
+#           legend.key.height = unit(0.3, 'cm'),
+#           legend.key.width = unit(0.2, 'cm')) +
+#   ggtitle(expression("ALK1"^italic("High")))
+# 
+#   ggsave(paste(out.dir, "10_terms_ALK1_High_enrichGO_BP.pdf", sep = "/"), width = 3, height = 2)
+#   
+
+```
+
+
+
+## Supplementary 2
+## A: Top 50 ALK1 High GO BP terms
+
+```{r fig.width=5, fig.height=6}
+
+enrichplot::dotplot(go, showCategory = 50) +
+  ylab("Gene Ontology") + 
+  theme(
+    axis.text.x = element_text(size = 6, color = "black", family = "Helvetica"),
+    axis.text.y = element_text(size = 6, color = "black", family = "Helvetica",),
+    axis.title = element_text(size = 6, color = "black", family = "Helvetica", face="italic"),
+    plot.title = element_text(hjust = 0.5, size = 10,family = "Helvetica", face = "italic"),
+    legend.title = element_text(size = 6, color = "black", family = "Helvetica"),
+    legend.text = element_text(size = 6, hjust = 1, family = "Helvetica"),
+    legend.margin = margin(-0.2,0,0,0, unit="cm"),
+    legend.key.height = unit(0.2, 'cm'),
+    legend.key.width = unit(0.2, 'cm')) +
+  scale_size_continuous(range=c(2, 5)) +
+  guides(colour = guide_colorbar(order = 1, reverse = T)) +
+  ggtitle(expression(italic("ALK1")^italic("High")))
+
+  ggsave(paste(out.dir, "top_50_enrichGO_BP_ALK1_High.pdf", sep = "/"), width = 5, height = 6)
+
+  
+```
+
+
+
+
+### B: Top 50 ALK1 Low GO BP terms
+
+```{r fig.width=5, fig.height=6}
+
+## GSEA
+markers <- read.delim(file = paste(out.dir, "markers/DE_ALK1_Low_High.tsv", sep = "/"), sep = "\t")
+markers <- markers %>% dplyr::filter(avg_log2FC > 0 & p_val_adj <= 0.05 & cluster == "ALK1 Low")
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+go <- clusterProfiler::gseGO(gene = geneList, 
+                                 OrgDb = org.Hs.eg.db::org.Hs.eg.db, 
+                                 ont = "BP",
+                                 minGSSize = 1, 
+                                 maxGSSize = 10000,
+                                 pAdjustMethod = "none",
+                                 keyType = "SYMBOL")
+
+results <- as_tibble(go) %>% 
+  mutate(Description = stringr::str_to_title(.data$Description)) 
+head(results)
+go@result <- results
+
+saveRDS(object = go, file = paste(out.dir, "GSEA/DE_ALK1_Low_GO_BP.rds", sep = "/"))
+
+
+enrichplot::dotplot(go, showCategory = 50) +
+  ylab("Gene Ontology") + 
+  theme(
+    axis.text.x = element_text(size = 6, color = "black", family = "Helvetica"),
+    axis.text.y = element_text(size = 6, color = "black", family = "Helvetica",),
+    axis.title = element_text(size = 6, color = "black", family = "Helvetica", face="italic"),
+    plot.title = element_text(hjust = 0.5, size = 10,family = "Helvetica", face = "italic"),
+    legend.title = element_text(size = 6, color = "black", family = "Helvetica"),
+    legend.text = element_text(size = 6, hjust = 1, family = "Helvetica"),
+    legend.margin = margin(-0.2,0,0,0, unit="cm"),
+    legend.key.height = unit(0.2, 'cm'),
+    legend.key.width = unit(0.2, 'cm')) +
+  scale_size_continuous(range=c(2, 5)) +
+  guides(colour = guide_colorbar(order = 1, reverse = T)) +
+  ggtitle(expression(italic("ALK1")^italic("Low")))
+
+  ggsave(paste(out.dir, "GSEA/top_50_ALK1_Low_GO_BP.pdf", sep = "/"), width = 5, height = 6)
+
+```
+
+
+
+
+
+## Fig 3 C : Top 50 GO terms ALK1 High+BMP9 vs ALK1 High
+
+
+### DE ALK1 High+BMP9 vs ALK1 High
+
+```{r}
+
+dir <- paste(out.dir, "markers/", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+Idents(htap) <- "ALK1"
+markers <- FindMarkers(htap, ident.1 = "ALK1 High+BMP9", ident.2 = "ALK1 High", only.pos = FALSE, test.use = "wilcox", assay = "RNA", slot = "data")
+markers$gene <- rownames(markers)
+markers$analyse <- rep("ALK1.High.BMP9_vs_ALK1.High", nrow(markers))
+write.table(markers,file=paste(dir, "ALK1_High_BMP9_vs_ALK1_High_wilcox.tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+### GSEA
+
+```{r}
+
+markers <- read.delim(file = paste(dir, "ALK1_High_BMP9_vs_ALK1_High_wilcox.tsv", sep = "/"), sep = "\t")
+markers <- markers %>% dplyr::filter(p_val_adj <= 0.05)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+go <- clusterProfiler::gseGO(gene = geneList, 
+                                 OrgDb = org.Hs.eg.db::org.Hs.eg.db, 
+                                 ont = "BP",
+                                 minGSSize = 1, 
+                                 maxGSSize = 10000,
+                                 pAdjustMethod = "none",
+                                 keyType = "SYMBOL")
+
+
+results <- as_tibble(go) %>% 
+  mutate(Description = stringr::str_to_title(.data$Description)) 
+head(results)
+go@result <- results
+
+saveRDS(object = go, file = paste(out.dir, "GSEA/DE_ALK1_High_BMP9_vs_ALK1_High_GO_BP.rds", sep = "/"))
+
+
+go <- readRDS(file = paste(out.dir, "GSEA_v1/GSE_ALK1_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+
+enrichplot::dotplot(go, showCategory = 50) +
+  ylab("Gene Ontology") + 
+  theme(
+    axis.text.x = element_text(size = 6, color = "black", family = "Helvetica"),
+    axis.text.y = element_text(size = 6, color = "black", family = "Helvetica",),
+    axis.title = element_text(size = 6, color = "black", family = "Helvetica", face="italic"),
+    plot.title = element_text(hjust = 0.5, size = 10,family = "Helvetica", face = "italic"),
+    legend.title = element_text(size = 6, color = "black", family = "Helvetica"),
+    legend.text = element_text(size = 6, hjust = 1, family = "Helvetica"),
+    legend.margin = margin(-0.2,0,0,0, unit="cm"),
+    legend.key.height = unit(0.2, 'cm'),
+    legend.key.width = unit(0.2, 'cm')) +
+  scale_size_continuous(range=c(2, 5)) +
+  ggtitle(expression(italic("ALK1")^italic("High")*"+"*italic("BMP-9 ")*italic("vs. ")*italic("ALK1")^italic("High")))
+
+ggsave(paste(out.dir, "GSEA/top_50_DE_ALK1_High_BMP9_vs_ALK1_High_GO_BP.pdf", sep = "/"), width = 5, height = 6)
+
+
+```
+
+
+
+
+## Fig 3 D : Top 50 GO terms ALK1 Low+BMP9 vs ALK1 Low
+
+
+### DE ALK1 Low+BMP9 vs ALK1 Low
+
+```{r}
+
+dir <- paste(out.dir, "markers/", sep = "/")
+if(!dir.exists(dir)){dir.create(file.path(dir), recursive = TRUE, showWarnings = FALSE)}
+Idents(htap) <- "ALK1"
+markers <- FindMarkers(htap, ident.1 = "ALK1 Low+BMP9", ident.2 = "ALK1 Low", only.pos = FALSE, test.use = "wilcox", assay = "RNA", slot = "data")
+markers$gene <- rownames(markers)
+markers$analyse <- rep("ALK1.Low.BMP9_vs_ALK1.Low", nrow(markers))
+write.table(markers,file=paste(dir, "ALK1_Low_BMP9_vs_ALK1_Low_wilcox.tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+### GSEA
+
+```{r}
+
+markers <- read.delim(file = paste(dir, "ALK1_Low_BMP9_vs_ALK1_Low_wilcox.tsv", sep = "/"), sep = "\t")
+markers <- markers %>% dplyr::filter(p_val_adj <= 0.05)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+go <- clusterProfiler::gseGO(gene = geneList, 
+                                 OrgDb = org.Hs.eg.db::org.Hs.eg.db, 
+                                 ont = "BP",
+                                 minGSSize = 1, 
+                                 maxGSSize = 10000,
+                                 pAdjustMethod = "none",
+                                 keyType = "SYMBOL")
+
+
+results <- as_tibble(go) %>% 
+  mutate(Description = stringr::str_to_title(.data$Description)) 
+head(results)
+go@result <- results
+
+saveRDS(object = go, file = paste(out.dir, "GSEA/DE_ALK1_Low_BMP9_vs_ALK1_Low_GO_BP.rds", sep = "/"))
+
+go <- readRDS(file = paste(out.dir, "GSEA_v1/GSE_ALK1_Low_BMP9_vs_ALK1_Low.rds", sep = "/"))
+
+enrichplot::dotplot(go, showCategory = 50) +
+  ylab("Gene Ontology") + 
+  theme(
+    axis.text.x = element_text(size = 6, color = "black", family = "Helvetica"),
+    axis.text.y = element_text(size = 6, color = "black", family = "Helvetica",),
+    axis.title = element_text(size = 6, color = "black", family = "Helvetica", face="italic"),
+    plot.title = element_text(hjust = 0.5, size = 10,family = "Helvetica", face = "italic"),
+    legend.title = element_text(size = 6, color = "black", family = "Helvetica"),
+    legend.text = element_text(size = 6, hjust = 1, family = "Helvetica"),
+    legend.margin = margin(-0.2,0,0,0, unit="cm"),
+    legend.key.height = unit(0.2, 'cm'),
+    legend.key.width = unit(0.2, 'cm')) +
+  scale_size_continuous(range=c(2, 5)) +
+  guides(colour = guide_colorbar(order = 1, reverse = T)) +
+  ggtitle(expression(italic("ALK1")^italic("Low")*"+"*italic("BMP-9 ")*italic("vs. ")*italic("ALK1")^italic("Low")))
+
+ggsave(paste(out.dir, "GSEA/top_50_DE_ALK1_Low_BMP9_vs_ALK1_Low_GO_BP.pdf", sep = "/"), width = 5, height = 6)
+
+```
+
+

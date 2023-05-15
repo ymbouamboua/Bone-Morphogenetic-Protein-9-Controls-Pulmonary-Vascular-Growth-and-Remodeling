@@ -1,0 +1,134 @@
+---
+title: "10X HTAP NucSeq - DE pseudobulk with Muscat "
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    df_print: kable
+    highlight: espresso  ## Theme for the code chunks
+    number_sections: yes  ## Adds number to headers (sections)
+    theme: flatly  ## CSS theme for the HTML page
+  html_notebook:
+    code_folding: none
+    theme: flatly
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+
+```{r echo = FALSE}
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      # record the current time before each chunk
+      now <<- Sys.time()
+    } else {
+      # calculate the time difference after a chunk
+      res <- difftime(Sys.time(), now)
+      # return a character string to show the time
+      paste0('Time for this code chunk to run : ', round(x = res, digits = 3), ' s')
+    }
+  }
+}))
+
+# Option chunk
+knitr::opts_chunk$set(
+  time_it = FALSE,
+  echo = TRUE,
+  cache = FALSE,
+  cache.lazy = FALSE,
+  tidy = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10
+)
+
+## Setting Paramaters
+the.seed <- 1337L # Computational Parameters
+
+
+# Setting directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Required packages
+
+suppressMessages(require(Seurat))
+library(dplyr)
+library(ggplot2)
+library(limma)
+library(muscat)
+library(purrr)
+
+source("/data/data_mbouamboua/R_scripts/upsetPlotFromList.R")
+set.seed(the.seed)
+```
+
+
+
+```{r}
+htap <- readRDS(paste(data.dir, "htap.rds", sep = "/"))
+DimPlot(htap, group.by = "ALK1")
+DimPlot(htap, group.by = "condition")
+```
+
+# CTRL vs PAH for ALK1 hight and ALK1 low cells
+## Data preparation
+```{r}
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 hight", "ALK1 low"))
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH", "CTRL"))
+sub <- NormalizeData(sub)
+DimPlot(sub, group.by = "ALK1")
+DimPlot(sub, group.by = "condition")
+```
+
+```{r}
+sub@meta.data <- sub@meta.data[,c("sample", "condition", "ALK1")]
+sce <-  as.SingleCellExperiment(sub)
+# compute sum-factors & normalize
+sce <- computeLibraryFactors(sce)
+sce <- logNormCounts(sce)
+```
+
+
+```{r}
+#sce$id <- paste0(sce$condition, ".", sce$ALK1)
+sce$id <- sce$sample
+
+sce <- prepSCE(sce,
+    kid = "ALK1", # subpopulation assignments
+    gid = "condition",  # group IDs (WT/KO)
+    sid = "id",   # sample IDs (WT/KO_B..)
+    drop = TRUE)  # drop all other colData columns
+
+nk <- length(kids <- levels(sce$cluster_id))
+ns <- length(sids <- levels(sce$sample_id))
+names(kids) <- kids; names(sids) <- sids
+
+# Cluster-sample sizes
+# nb. of cells per cluster-sample
+t(table(sce$cluster_id, sce$sample_id))
+
+```
+
+```{r}
+pb <- aggregateData(sce,
+    assay = "counts", fun = "sum",
+    by = c("cluster_id", "sample_id"))
+# one sheet per subpopulation
+SummarizedExperiment::assayNames(pb)
+t(head(SummarizedExperiment::assay(pb), 50))
+
+# run DS analysis
+res <- pbDS(pb, verbose = FALSE)
+
+```
+

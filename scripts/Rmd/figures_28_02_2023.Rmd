@@ -1,0 +1,1032 @@
+---
+title: "10x PAH BMP9 - FIGURES"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+outs:
+  html_document: default
+  html_notebook: default
+date: 'Compiled: `r Sys.Date()`'
+---
+
+# Setting parameters
+
+```{r setup, include=TRUE, warning=FALSE}
+
+invisible(gc())
+the.seed <- 1337L
+options(future.globals.maxSize = 80000 * 1024^2)
+ws <- "/data/data_mbouamboua/projects/10x_htap_bmp9"
+outdir <-  paste(ws, "outs/outs_27_02_2023", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+source("/data/data_mbouamboua/apps/sc/visualization.R")
+set.seed(the.seed)
+
+```
+
+
+# Define functions
+
+```{r}
+
+my.theme1 <- function(base.size = 8, ...){
+  theme_bw(base_rect_size = 0.2, ...) +
+  theme(
+        legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.box.margin = margin(0,0,0,-8),
+        legend.title = element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        text = element_text(size = base.size),
+        axis.title.y = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+}
+
+
+my.theme2 <- function(base.size = 8, ...){
+  theme_bw(...) +
+  theme(
+        legend.position = c(1.055, 4.5),
+        legend.justification = "left",
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.margin = margin(0,0,0,0), 
+        legend.box.margin = margin(-30,5,0,-3),
+        legend.title=element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        text = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90,  
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = 6, 
+                                   color = "black"),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()
+        )
+}
+
+
+my.theme3 <- function(base.size = 6, ...){
+  theme_bw(base_rect_size = 0.2, ...) +
+  theme(
+        legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.box.margin = margin(0,0,0,-8),
+        legend.title = element_text(size = base.size), 
+        legend.text=element_text(size = base.size),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        axis.ticks =  element_line(colour = "black", size = 0.1), 
+        text = element_text(size = base.size),
+        axis.title.y = element_text(size = base.size),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90,  
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = base.size, 
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+}
+
+
+MyVlnPlot <- function(object, 
+                      group.by, 
+                      gene.signature, 
+                      label = "p.signif",
+                      color = NULL,
+                      name = NULL,
+                      comparisons,
+                      outdir){
+  
+  require(Seurat)
+  require(ggplot2)
+  
+  if ("Seurat" != class(object)[1]) {
+    stop("object should be of class Seurat")
+  }
+  
+  if (!missing(x = group.by)) {
+    object <- SetIdent(object = object, value = group.by)
+  }
+  
+    # check if integer or already normalized, normalize if needed
+  mat = GetAssayData(object, slot = 'counts')
+  if ((sum(mat %% 1 == 0) == length(mat)) == T) {
+    object %<>% NormalizeData()
+  } else {
+    object[['RNA']]@data = mat
+  }
+  
+  plot <- function(signature, y.max = NULL){
+    p <- VlnPlot(object = object, 
+                 group.by = group.by, 
+                 assay = "RNA", 
+                 slot = "data",
+                 features = signature,
+                 cols = color,
+                 pt.size = 0, 
+                 y.max = y.max)
+    
+p <- p + theme( plot.title = element_text(hjust = 0.5, size = 10, face="bold.italic"),
+                    text =  element_text(size = 8, family = "Helvetica"), 
+                    legend.position = "none",
+                    panel.grid.major = ggplot2::element_blank(), 
+                    panel.grid.minor = ggplot2::element_blank(),
+                    panel.background = ggplot2::element_blank(),
+                    axis.line =   element_line(colour = "black"), 
+                    axis.ticks =  element_line(colour = "black", size = 5/12), 
+                    axis.text.x = element_blank(),
+                    axis.ticks.x = element_blank(),
+                    axis.text.y = element_text(color = "black"),
+                    axis.title =  element_text(face = "plain"), 
+                    axis.title.x = element_blank(),
+                    axis.text =   element_text(size = 8)
+    ) 
+    
+p <- p + stat_compare_means(comparisons = comparisons, 
+                            label = label,
+                            vjust = 0,
+                            tip.length = 0.03,
+                            bracket.size = 0.3,
+                            step.increase = 0,
+                            size = 3)
+
+  }
+  
+  plot.list <- list()
+  y.max.list <- list()
+  gene.signature <- factor(unique(gene.signature))
+  for (gene in gene.signature) {
+    plot.list[[gene]] <- plot(gene)
+    y.max.list[[gene]] <- max(plot.list[[gene]]$data[[gene]])
+    plot.list[[gene]] <- plot(gene, y.max = (y.max.list[[gene]]+0.2) )
+    print(plot.list[[gene]])
+    gene <- paste0(gene, "_", name, "_", ".pdf", sep = "")
+    ggsave(paste(outdir, gene, sep = "/"), width = 1.5, height = 2.5, useDingbats = FALSE)
+  }
+}
+
+
+```
+
+
+
+# Load data
+
+```{r}
+
+htap <- readRDS("/data/data_mbouamboua/projects/10x_htap_bmp9/outs/rds/htap_10_clusters_without_cycling.rds")
+invisible(gc())
+DimPlot(htap, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "clusters", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "condition") + DarkTheme()
+DimPlot(htap, group.by = "sample") + DarkTheme()
+
+```
+
+
+# La liste complète des gènes différentiellement exprimés entre le groupe ALK1 high et le groupe ALK1 low
+
+```{r fig.width=3, fig.height=15}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+markers <- FindMarkers(object = sub, ident.1 = "ALK1 High", ident.2 = "ALK1 Low", only.pos = F,  assay = "RNA", slot = "data")
+markers$gene <- rownames(markers)
+markers$analyse <- rep("ALK1_High_vs_ALK1_Low", nrow(markers))
+write.table(markers,file=paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=F,row.names=F,col.names=T)
+
+markers <- read.delim(paste(outdir,"DE_ALK1_High_vs_ALK1_Low.tsv", sep = "/"), sep = "\t")
+View(markers)
+markers <- markers[order(markers$p_val_adj <= 0.05),] 
+head(markers,10)
+markers <- head(markers,50)
+Idents(sub) <- "ALK1"
+custom_dotplot(seurat_object = sub, 
+               features = rownames(head(markers[order(markers$avg_log2FC),],100)),
+               x_lab_rotate = T, flip_axes = T, base_size = 8, theme_bw = T) 
+
+#ggsave(paste(outdir, "ALK1_High_vs_ALK1_Low.pdf", sep = "/"), width = 3, height = 15, useDingbats = FALSE)
+
+```
+
+
+# Figure 1 et supp : sans stimulation bmp9
+
+## 1 B sur le dernier dataset. Faites un graphe avec l'expression des récepteurs dans chacun des 5 clusters: ajouter les stat + l'échelle et classer les récepteurs par type 1, 2 et 3
+
+```{r fig.width=4, fig.height=3}
+
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "clusters"
+custom_dotplot(seurat_object = htap, features = c(type1,type2,type3), x_lab_rotate = T, flip_axes = F, base_size = 10, theme_bw = T)
+ggsave(paste(outdir, "fig_1B.pdf", sep = "/"), width = 4, height = 3, useDingbats = FALSE)
+
+```
+
+
+## 1 C Faire 4 histogrammes séparés pour ALK1, BMPR2, TGFbR2, Eng selon cluster high et low.
+
+### Histogram ("ALK1 High" vs "ALK1 Low")
+
+
+```{r}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+
+# Features to plot (receptors type 1,2,3)
+features <- c("ACVRL1", "BMPR2","ENG", "TGFBR2","FLT1","FOXF1","KDR","PGF","VEGFB")
+features <- rownames(sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, slol = "data",...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident)
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+```
+
+```{r fig.width=1.5, fig.height=3}
+
+# ggplot(joined, aes(x = feat, y = exp)) +
+#   geom_col(aes(color = ident, fill = ident), position = position_dodge(0.5), 
+#            width = 0.5,colour="black") +
+#   scale_color_manual(values = c("#117733","#88CCEE")) +
+#   scale_fill_manual(values = c("#117733","#88CCEE")) +
+#   theme(legend.position = "none") +
+#   theme_classic() +
+#   #ylim(NA, 10) +
+#   stat_compare_means(comparisons = list(c("ALK1 High", "ALK1 Low")), label = "p.signif", size = 3)
+
+
+data <- VlnPlot(sub, features = features, group.by = "ALK1")
+data <- data$data
+comparisons <- list(c("ALK1 High", "ALK1 Low"))
+
+data.features <- FetchData(object = sub, vars = features, slot = "data")
+
+                    
+for(i in 1:length(features)){
+  print(features[i])
+  df <- subset(joined, feat == features[i])
+  p <- ggplot(df, aes(x=ident, y=exp, fill=ident)) + 
+    geom_bar(stat = "identity", position = position_dodge(0.9),
+             width = 0.8, colour="black", show.legend = F) +
+    theme_classic() +
+    theme(plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+          text = element_text(size = 10, family = "Helvetica"),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.y = element_text(color = "black")) +
+    labs(title = features[i], x = " ", y = "Agverage expression") +
+    scale_color_manual(values = c("#117733","#88CCEE")) +
+    scale_fill_manual(values = c("#117733","#88CCEE")) +
+    stat_compare_means(comparisons = comparisons, size = 3,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test"
+                       )
+  print(p)
+ # ggsave(paste(outdir, "/", features[i], ".pdf", sep = ""), width = 1.5, height = 3, useDingbats = FALSE)
+
+}
+
+
+
+```
+
+
+
+### ViolinPlot ("ALK1 High" vs "ALK1 Low")
+
+```{r fig.width=1.5, fig.height=2.5}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+comparisons <- list(c("ALK1 High", "ALK1 Low"))
+features <- c("ACVRL1", "BMPR2","ENG", "TGFBR2","FLT1","FOXF1","KDR","PGF","VEGFB")
+
+MyVlnPlot(object = sub,
+          group.by = "ALK1",
+          gene.signature = features, 
+          label = "p.signif",
+          color = c("#88CCEE","#117733"),
+          comparisons = comparisons,
+          name = "ViolinPlot_ALK1_High_vs_ALK1_Low",
+          outdir = outdir)
+
+```
+
+
+### Histogram ("ALK1 High", "ALK1 High+BMP9")
+
+
+```{r}
+
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 High+BMP9"))
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+
+# Features to plot (receptors type 1,2,3)
+features <- c("ACVRL1", "BMPR2","ENG", "TGFBR2","FLT1","FOXF1","KDR","PGF","VEGFB")
+features <- rownames(sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+```
+```{r fig.width=5, fig.height=3}
+
+for(i in 1:length(features)){
+  print(features[i])
+  df <- subset(joined, feat == features[i])
+  p <- ggplot(df, aes(x=ident, y=exp, fill=ident)) + 
+    geom_bar(stat = "identity", position = position_dodge(0.9),
+             width = 0.8, colour="black", show.legend = T) +
+    theme_classic() +
+    theme(plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+          text = element_text(size = 10, family = "Helvetica"),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.y = element_text(color = "black")) +
+    labs(title = features[i], x = " ", y = "Agverage expression") +
+    scale_color_manual(values = c("#88CCEE","#CC6677")) +
+    scale_fill_manual(values = c("#88CCEE","#CC6677")) +
+    stat_compare_means(comparisons = list(c("ALK1 High", "ALK1 Low")),
+                       label = "p.signif",
+                       #label = "p.format",
+                       size = 3,
+                       paired = F)
+  print(p)
+  #ggsave(paste(outdir, "/", features[i], ".pdf", sep = ""), width = 1.5, height = 3, useDingbats = FALSE)
+
+}
+
+```
+
+
+
+### ViolinPlot ("ALK1 High+BMP9", "ALK1 High")
+
+```{r fig.width=1.5, fig.height=2.5}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 High+BMP9"))
+comparisons <- list(c("ALK1 High", "ALK1 High+BMP9"))
+features <- c("ACVRL1", "BMPR2","ENG", "TGFBR2","FLT1","FOXF1","KDR","PGF","VEGFB")
+
+MyVlnPlot(object = sub,
+          group.by = "ALK1",
+          gene.signature = features,
+          color = c("#88CCEE","#CC6677"),
+          comparisons = comparisons,
+          name = "ViolinPlot_ALK1_High_BMP9_vs_ALK1_High",
+          outdir = outdir)
+
+```
+
+
+
+## 1 D En plus du graphe, nous souhaitons avoir la liste des gènes complets entre ALK low et high. Nous voulons aussi la liste des gènes par termes dans la figure 1 D.
+
+### GSEA
+#### Gene markers
+```{r}
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+Idents(sub) <- "ALK1"
+markers <- FindMarkers(object = sub,ident.1 = "ALK1 High", ident.2 =  "ALK1 Low", assay = "RNA", slot = "data", only.pos = F)
+markers$gene <- rownames(markers)
+head(markers)
+write.table(markers,file=paste(outdir,"DE_ALK1_High_vs_Low.tsv",sep="/"),sep="\t",quote=F,row.names=F,col.names=T)
+
+```
+
+
+```{r fig.width=4.5, fig.height=2.5}
+## https://github.com/YuLab-SMU/DOSE/issues/20
+## https://github.com/ctlab/fgsea
+
+markers <- read.delim(paste(outdir, "DE_ALK1_High_vs_Low.tsv",sep = "/"), header = T, sep = "\t")
+
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+go_bp <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(go_bp, paste(outdir, "GO_BP_DE_ALK1_High_vs_Low.rds", sep = "/"))
+res <- go_bp@result
+res$Analyse <- rep("DE_ALK1_High_Low")
+write.table(res,file=paste(outdir,"GO_BP_DE_ALK1_High_vs_Low.tsv",sep="/"),sep="\t",quote=F,row.names=T,col.names=T)
+
+```
+
+```{r fig.width=2.5, fig.height=12}
+
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+
+go_bp_sub <- dplyr::filter(go_bp, Description %in% terms)
+View(go_bp_sub@result)
+
+enrichplot::heatplot(go_bp_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 6, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 5, color = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "top") +
+  coord_flip() +
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Avg logFC", type = "gradient") 
+ggsave(paste(outdir, "fig_1D_v2.pdf", sep = "/"), width = 2.2, height = 10, useDingbats = FALSE)
+
+```
+
+
+```{r fig.width=10, fig.height=2.5}
+
+enrichplot::heatplot(go_bp_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 5, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+        axis.title = element_text(size = 10, colour = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "right") +
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Avg logFC", type = "gradient") 
+
+ggsave(paste(outdir, "fig_1D_v1.pdf", sep = "/"), width = 12, height = 2, useDingbats = FALSE)
+
+```
+
+### Volcanoplot
+
+```{r fig.width=5, fig.height=6}
+
+go_bp <- readRDS(paste(outdir, "GO_BP_DE_markers_ALK1_High_Low.rds", sep = "/"))
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+go_bp_sub <- dplyr::filter(go_bp, Description %in% terms)
+hp <- enrichplot::heatplot(go_bp_sub, foldChange=geneList)
+data <- subset(hp$data, categoryID == "cell migration")
+markers <- read.delim(paste(outdir, "DE_ALK1_High_vs_Low.tsv",sep = "/"), header = T, sep = "\t")
+markers$p_val_adj <- as.numeric(markers$p_val_adj)
+markers$p_val_adj[markers$p_val_adj==0] <- 1e-323
+
+EnhancedVolcano::EnhancedVolcano(markers,
+    lab = markers$gene,
+    x = 'avg_log2FC',
+    y = 'p_val',
+    # selectLab = c("KDR","FLT1", "VEGFB"),
+    # xlab = bquote(~Log[2]~ 'fold change'),
+    # pCutoff = 10e-14,
+    FCcutoff = 0.5,
+    pointSize = 2.0,
+    labSize = 3.0,
+    # labCol = 'black',
+    # labFace = 'bold',
+    # boxedLabels = TRUE,
+    # colAlpha = 5/5,
+    # legendPosition = 'none',
+    # legendLabSize = 14,
+    # legendIconSize = 4.0,
+    # drawConnectors = TRUE,
+    # widthConnectors = 1.0,
+    # colConnectors = 'black'
+    )
+
+  
+
+data <- subset(markers, gene %in% data$Gene)
+markers <- markers[with(markers, order(avg_log2FC)),]
+markers$threshold <- as.factor(markers$p_val_adj <= 0.05)
+markers$towrite <- rep(0,nrow(markers))
+markers[data$gene, "towrite"] <- "TRUE"
+#add arbitrarily small p value for plotting (can't plot -log10(0))
+markers$p_val_adj[markers$p_val_adj==0] <- 1e-323
+
+ggplot(data=markers, aes(x=avg_log2FC, y=p_val_adj, colour=threshold)) + 
+        geom_point(color="grey60", fill = "grey60", size=1.3, shape = 21, alpha = 0.4) +
+        geom_point(data=subset(markers,threshold == "TRUE" & avg_log2FC > 0 & gene %in% data$gene),
+                   shape = 21, fill = "red", colour = "red4", size=1.3, alpha = 0.4) +
+        geom_point(data=subset(markers,threshold == "TRUE" & avg_log2FC < 0 & gene %in% data$gene),
+                   shape = 21, fill = "blue", colour = "blue4", size=1.3, alpha = 0.4) +
+        geom_text_repel(data=subset(markers,towrite == "TRUE") ,aes(label=gene), size=2.5, show.legend=FALSE, force=2, colour = "black") +
+        theme_classic()+
+        #geom_hline(aes(yintercept = 0), colour = "black", size = 0.1) +
+        ylim(c(min(markers$p_val_adj), max(markers$p_val_adj))) + 
+        xlab("avg_log2FC") + 
+        ylab("p_val_adj") + 
+        scale_colour_discrete(name = "FDR < 0.05") +
+        theme(legend.title = element_text(face = "bold", size = 6), legend.text = element_text(size = 6)) +
+        theme(plot.title = element_text(hjust = 0.5, size = 12, family = "Helvetica", face = "bold"),
+    text = element_text(size = 10, family = "Helvetica"),
+          axis.title.x = element_text(size = 10),
+              axis.text.x = element_text(size = 10),
+              axis.title.y = element_text(size = 10),
+              axis.text.y = element_text(size = 10))
+      
+```
+
+
+## Figure 1S
+
+```{r fig.width=12, fig.height=2}
+
+ DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("PECAM1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "PECAM1") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("ERG"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ERG") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("CDH5"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "cadherin-5 (CDH5)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("TEK"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "Tie2 (TEK)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("TAGLN"),  min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "SM22 (TAGLN)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p6 <- FeaturePlot(htap, features = c("ACTA2"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "Actin α chain (ACTA2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+grid.arrange(p1,p2,p3,p4,p5,p6,ncol=6)
+
+pdf(paste(outdir, "fig_1S.pdf", sep = "/"), width = 12, height = 2, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,ncol=6)
+dev.off()
+
+```
+
+
+
+# Figure 2 et supp
+
+## Analyse GObp pour les 10 termes sélectionnés dans le dotplot_GEO_BP_ALK1_High_BMP9_vs_ALK1_High. voir fichier ci-joint ou j'ai surligné en jaune. + Analyse GSEA des 10 termes sélectionnés.
+
+
+### DE ALK1 High+BMP9 vs ALK1 High
+
+```{r}
+
+DefaultAssay(htap) <- "RNA"
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High+BMP9","ALK1 High"))
+sub <- NormalizeData(sub)
+markers <- FindMarkers(object = htap, ident.1 = "ALK1 High+BMP9", ident.2 = "ALK1 High",  only.pos = FALSE,  assay = "RNA", slot = "data")
+markers$gene <- rownames(markers)
+markers$analyse <- rep("ALK1_High_BMP9_vs_ALK1_High")
+write.table(markers,file=paste(outdir,"DE_ALK1_High_BMP9_vs_ALK1_High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+### GSEA
+ 
+```{r fig.width=2.5, fig.height=12}
+
+markers <- read.delim("/data/data_mbouamboua/projects/10x_htap_bmp9/outs/outs_27_02_2023/DE_ALK1_High_BMP9_vs_ALK1_High.tsv", header = T, sep = "\t")
+#markers <- subset(markers,p_val_adj <= 0.05)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+
+GO_BP_ALK1_High_BMP9_vs_ALK1_High <- gseGO(geneList = geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(GO_BP_ALK1_High_BMP9_vs_ALK1_High, paste(outdir, "GO_BP_ALK1_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+res <- GO_BP_ALK1_High_BMP9_vs_ALK1_High@result
+#View(res)
+res$Analyse <- rep("ALK1_High_BMP9_vs_ALK1_High")
+write.table(res,file=paste(outdir,"GO_BP_ALK1_High_BMP9_vs_ALK1_High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+```{r fig.width=7, fig.height=3}
+
+custom_GSEA_dotplot <- function(gsea, terms){
+    
+    require(DOSE)
+    require(enrichplot)
+    require(dplyr)
+    require(clusterProfiler)
+    require(ggplot2)
+    
+    terms <- dplyr::filter(gsea@result, Description %in% terms) %>% pull(Description)
+    go_bp_sub <- dplyr::filter(gsea, Description %in% terms)
+    
+    plot <- clusterProfiler::dotplot(go_bp_sub, x = "GeneRatio", showCategory = length(terms)) +
+      theme_bw() +
+      theme(axis.text.y = element_text(color = "black", size = 10),
+            axis.text.x = element_text(color = "black", size = 10),
+            axis.title = element_text(color = "black", size = 10),
+            legend.text = ggplot2::element_text(size=8),
+            legend.title = element_text(size = 10),
+            legend.key.height = unit(0.3, 'cm'),
+            legend.key.width = unit(0.3, 'cm')) +
+      ggplot2::guides(color = guide_legend(override.aes = list(size = 3))) +
+      scale_size_continuous(range=c(2, 6))+
+      #scale_colour_gradient(limits=c(0, 0.10), low="red") +
+      scale_colour_gradient2(low ="#d7301f", mid = "#d7301f", high = "#0570b0") +
+      ylab(NULL)
+    return(plot)
+}
+
+terms <- c("negative regulation of pathway-restricted SMAD protein phosphorylation", "blood vessel remodeling", "negative regulation of angiogenesis", "blood circulation", "regulation of cell growth", "regulation of blood pressure", "positive regulation of cell differentiation", "negative regulation of vasculature development" , "endothelial cell differentiation", "regulation of cell death")
+
+custom_GSEA_dotplot(gsea = GO_BP_ALK1_High_BMP9_vs_ALK1_High, terms = terms)
+
+ggsave(paste(outdir, "fig_2_dotplot_GO_BP_ALK1.High.BMP9_vs_ALK1_High.pdf", sep = "/"), width = 7, height = 3, useDingbats = FALSE)
+```
+
+
+```{r fig.width=2.2, fig.height=12}
+
+terms <- c("negative regulation of pathway-restricted SMAD protein phosphorylation", "blood vessel remodeling", "negative regulation of angiogenesis", "blood circulation", "regulation of cell growth", "regulation of blood pressure", "positive regulation of cell differentiation", "negative regulation of vasculature development" , "endothelial cell differentiation", "regulation of cell death")
+
+go_bp_sub <- dplyr::filter(GO_BP_ALK1_High_BMP9_vs_ALK1_High, Description %in% terms)
+
+enrichplot::heatplot(go_bp_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 6, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+        axis.title = element_text(size = 10, colour = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "top") +
+  coord_flip() +
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Avg logFC", type = "gradient")
+
+ggsave(paste(outdir, "fig_2_GO_BP_ALK1.High.BMP9_vs_ALK1_High_v2.pdf", sep = "/"), width = 2.4, height = 12, useDingbats = FALSE)
+
+```
+
+
+```{r fig.width=12, fig.height=2.2}
+
+enrichplot::heatplot(go_bp_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 5, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+        axis.title = element_text(size = 10, colour = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "right") +
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Avg logFC", type = "gradient") 
+
+ggsave(paste(outdir, "fig_2_GO_BP_ALK1.High.BMP9_vs_ALK1_High_v1.pdf", sep = "/"), width = 12, height = 2, useDingbats = FALSE)
+
+```
+ 
+ ### Score and preranked 
+
+```{r}
+
+
+GO_BP_ALK1_High_BMP9_vs_ALK1_High <- readRDS(paste(outdir,  "GO_BP_ALK1_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+
+GO_BP_ALK1_High_BMP9_vs_ALK1_High@result$Description <- factor(gsub("/", " or ", GO_BP_ALK1_High_BMP9_vs_ALK1_High@result$Description))
+
+terms <- c("negative regulation of pathway-restricted SMAD protein phosphorylation", "blood vessel remodeling", "negative regulation of angiogenesis", "blood circulation", "regulation of cell growth", "regulation of blood pressure", "positive regulation of cell differentiation", "negative regulation of vasculature development" , "endothelial cell differentiation", "regulation of cell death")
+
+GO_BP_ALK1_High_BMP9_vs_ALK1_High <- dplyr::filter(GO_BP_ALK1_High_BMP9_vs_ALK1_High, Description %in% terms)
+
+## count the gene number
+gene_count <- GO_BP_ALK1_High_BMP9_vs_ALK1_High@result %>% group_by(ID) %>% summarise(count = sum(str_count(core_enrichment, "/")) + 1)
+## merge with the original dataframe
+dot_df<- left_join(GO_BP_ALK1_High_BMP9_vs_ALK1_High@result, gene_count, by = "ID") %>% mutate(GeneRatio = count/setSize)
+dot_df_sub <- subset(dot_df, Description %in% terms)
+
+nb <- length(GO_BP_ALK1_High_BMP9_vs_ALK1_High@result$ID)
+
+for(i in 1:nb){
+p <- enrichplot::gseaplot2(GO_BP_ALK1_High_BMP9_vs_ALK1_High, 
+                           geneSetID = i, 
+                           base_size = 8,
+                           title = GO_BP_ALK1_High_BMP9_vs_ALK1_High@result$Description[[i]]) +
+  theme(axis.text.y = element_text(color = "black", size = 8),
+        axis.text.x = element_text(color = "black", size = 8),
+        axis.title = element_text(color = "black", size = 8))
+
+print(p)
+pdf(paste(outdir, "/Score_preranked_GO_BP_DE_ALK1.High.BMP9_vs_ALK1_High/", GO_BP_ALK1_High_BMP9_vs_ALK1_High@result$Description[[i]], ".pdf", sep = ""), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+}
+
+```
+
+
+
+## Figure 2S
+
+```{r fig.width=10, fig.height=5}
+
+ DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("PECAM1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "PECAM1") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("ERG"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ERG") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("CDH5"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "cadherin-5 (CDH5)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("TEK"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "Tie2 (TEK)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("TAGLN"),  min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "SM22 (TAGLN)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p6 <- FeaturePlot(htap, features = c("ACTA2"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "Actin α chain (ACTA2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+grid.arrange(p1,p2,p3,p4,p5,p6,ncol=3)
+
+pdf(paste(outdir, "fig_2S.pdf", sep = "/"), width = 8, height = 4, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,ncol=3)
+dev.off()
+
+```
+
+
+
+```{r fig.width=5, fig.height=3}
+
+Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+DefaultAssay(sub) <- "RNA"
+sub <- NormalizeData(sub)
+
+# Features to plot (receptors type 1,2,3)
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+features = c(type1, type2, type3)
+features <- rownames(sub[features,])
+
+# Prepare data for plot1
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined <- data.frame()
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined <- rbind(joined, dat)
+}
+
+# Define label format
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")))
+
+# Plot 1
+g1 <- ggboxplot(joined, x = "feat", y = "exp", fill = "ident", xlab = " ", ylab = "Expression level (Mean±SEM)",
+          size = 0.1, width = 0.8, notch = FALSE, outlier.shape = NA, bxp.errorbar = TRUE, bxp.errorbar.width = 0.4) +
+  my.theme1(base.size = 6) +
+  labs(fill = "ALK1 clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#88CCEE")) +
+  stat_compare_means(
+    aes(group = ident), na.rm = TRUE,
+    label = "p.signif",  hide.ns = FALSE, method = "t.test", size = 1.5,
+    label.y = c(1, 1, 1, 2.3, 0.8, 0.7, 0.95, 0.95, 0.95, 2.2, 2.7, 2.4, 1.0)
+  )
+
+# Prepare data for plot 2
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = sub, genes = c(type1, type2, type3), fix_names = TRUE)
+df$cell <- rownames(df)
+# Use melt to change data.frame format
+df <- reshape2::melt(df, id.vars = c("cell","ident"), measure.vars = c(type1, type2, type3), variable.name = "feat", value.name = "exp")
+dt <- data.frame(x = levels(df$feat), group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), stringsAsFactors = FALSE)
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  my.theme2(base.size = 6) +
+  geom_tile() + 
+  xlab("") +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(label.position = "right", title = "Receptors", keyheight = 0.5, nrow = 3)) 
+  
+# Use patchwork to join plots
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+
+# pdf(paste(outdir, "figures", "boxplot_ALK1_high_vs_ALK1_low_receptors.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+# g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+# dev.off()
+
+```
+

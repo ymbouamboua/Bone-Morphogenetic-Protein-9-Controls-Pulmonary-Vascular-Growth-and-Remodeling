@@ -1,0 +1,269 @@
+---
+title: "10x HTAP BMP9 - Cell Annotation"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+date: "`r Sys.Date()`"
+#always_alLow_html: yes
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: yes
+    highlight: zenburn
+    toc: yes
+    toc_depth: 3
+  html_notebook: 
+    code_folding: none
+    theme: united
+    toc: yes
+    number_sections: yes
+  html_document: 
+    code_folding: hide
+    fig_caption: yes
+    highlight: zenburn
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=TRUE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+```
+
+# Setting seed and loading R packages
+
+
+```{r}
+# Loading required packages
+suppressMessages(require(Seurat))
+suppressMessages(require(ggplot2))
+suppressMessages(require(plyr))
+suppressMessages(require(cowplot))
+suppressMessages(require(RColorBrewer))
+
+set.seed(the.seed)
+```
+
+# Define colors
+
+```{r}
+my_palette <- list()
+# my_palette$sampleColors <- setNames(
+#   c(brewer.pal(n = 8, name = 'RdBu')),
+#   c("PAH_675093", "PAH_704945","PAH_698029", "PAH_693770","PRC_2","PRC_7","PRC_3","PRC_8")
+# )
+
+my_palette$cellColors <- setNames(
+ c(brewer.pal(n = 6, name = 'Paired'), "gray", brewer.pal(n = 6, name = "Dark2")),
+  c("C1", "C2", "C3", "C4", "C5", "C6", "Cycling cells", "C1'", "C2'", "C3'", "C4'", "C5'", "C6'")
+)
+
+# Use colourblind-friendly colours
+friendly_cols <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99", "#999933", "#882255", "#661100", "#6699CC")
+
+# Set theme
+myTheme <-
+  list(
+    scale_fill_manual(values = friendly_cols),
+    scale_color_manual(values = friendly_cols),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 12),
+        legend.position = "right",
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+      )
+  )
+```
+
+
+
+
+# Load data
+
+```{r}
+htap <- readRDS("/data/data_mbouamboua/10x.htap/bmp9/outs/rds/htap.rds")
+
+htap@meta.data <- htap@meta.data[, c("orig.ident","nCount_RNA","nFeature_RNA","nCount_HTO","nFeature_HTO","HTO_maxID","HTO_secondID","HTO_margin","HTO_classification","HTO_classification.global","hash.ID","percent.mito","percent.ribo","dropouts" ,"LIBRARY","TAG","BMP9","PHENOTYPE","SAMPLE","nCount_SCT","nFeature_SCT","SCT_snn_res.0.3","seurat_clusters")] 
+
+colnames(htap@meta.data) <- c("orig.ident","nCount_RNA","nFeature_RNA","nCount_HTO","nFeature_HTO","HTO_maxID","HTO_secondID","HTO_margin","HTO_classification","HTO_classification.global","hash.ID","percent.mito","percent.ribo","dropouts","library","tag","bmp9","phenotype","sample","nCount_SCT","nFeature_SCT","SCT_snn_res.0.3","seurat_clusters")
+View(htap@meta.data)
+
+Idents(htap) <- "sample"
+htap[["condition"]]=""
+htap@meta.data[htap@meta.data$sample %in% c("C685116", "C686518","C681725", "C676136", "C681086"), "condition"] <- "CTRL"
+htap@meta.data[htap@meta.data$sample %in% c("C685116.BMP9","C686518.BMP9","C681725.BMP9","C676136.BMP9","C681086.BMP9"), "condition"] <- "CTRL+BMP9"
+htap@meta.data[htap@meta.data$sample %in% c("H230", "H231", "H247","H248","H250"), "condition"] <- "PAH"
+htap@meta.data[htap@meta.data$sample %in% c("H230.BMP9","H231.BMP9","H247.BMP9","H248.BMP9","H250.BMP9"), "condition"] <- "PAH+BMP9"
+
+```
+
+
+```{r }
+DefaultAssay(htap) <- "RNA"
+VlnPlot(htap, features = c("nCount_RNA","nFeature_RNA", "percent.mito"), group.by = "seurat_clusters", stack = T, flip = T) + NoLegend()
+```
+
+# Remove cluster 11
+
+```{r}
+Idents(htap) <- "seurat_clusters"
+htap <- subset(htap, idents = 11, invert = T)
+DimPlot(htap, group.by = "seurat_clusters", label = T)
+```
+
+
+
+```{r fig.width=4, fig.height=4}
+htap <- SetIdent(htap, value="seurat_clusters")
+mnmat <- c()
+uniq <- unique(htap@active.ident)
+htap@meta.data$cluster <- htap@active.ident
+for(i in 1:length(uniq)){
+  mnmat <- cbind(mnmat, apply(as.matrix(htap@assays$integrated@data[, htap@meta.data$cluster==uniq[i]]), 1, mean))
+}
+colnames(mnmat) <- as.vector(unique(htap@active.ident))
+ct=cor(mnmat)
+p <- pheatmap(ct, cluster_rows=TRUE, cluster_cols=TRUE, fontsize = 8, clustering_method = "complete",
+         #main = "Cell cluster correlations",
+         #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50)
+         )
+
+```
+
+
+# Find Subclusters
+
+```{r subscluster}
+DefaultAssay(htap) <- "integrated"
+Idents(htap) <- "seurat_clusters"
+htap <- FindNeighbors(htap)
+htap <- FindSubCluster(object = htap, cluster = c(7), resolution = 0.5, subcluster.name = "c7", graph.name = "SCT_snn", algorithm = 1)
+Idents(htap) <- "c7"
+htap <- FindSubCluster(object = htap, cluster = c(8), resolution = 0.0001, subcluster.name = "c8", graph.name = "SCT_snn",algorithm = 1)
+Idents(htap) <- "c8"
+htap <- FindSubCluster(object = htap,cluster = 10,resolution = 0.2,subcluster.name = "subclusters",graph.name = "SCT_snn",algorithm = 1)
+
+DimPlot(htap, label = T, group.by = "subclusters")
+DimPlot(htap, label = T, group.by = "bmp9") + NoLegend()
+
+```
+
+
+
+
+# Cell annotation
+
+```{r fig.width=7, fig.height=5}
+
+Idents(htap) <- "subclusters"
+htap[["clusters"]]=""
+htap@meta.data[htap@meta.data$subclusters %in% c(0), "clusters"] <- "C1"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_0", "7_3", "7_5"), "clusters"] <- "C2"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_0","8_2","8_4", "8_5", "8_7", "8_11", "8_12", "8_13", "8_14","8_15","8_16","8_21", "8_25","8_27"), "clusters"] <- "C3"
+htap@meta.data[htap@meta.data$subclusters %in% c(1), "clusters"] <- "C4"
+htap@meta.data[htap@meta.data$subclusters %in% c(4), "clusters"] <- "C5"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_1"), "clusters"] <- "C6"
+
+htap@meta.data[htap@meta.data$subclusters %in% c(3), "clusters"] <- "C1'"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_1", "7_2", "7_4"), "clusters"] <- "C2'"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_1","8_3", "8_6", "8_8", "8_9", "8_10", "8_17", "8_18", "8_19", "8_20","8_22","8_23","8_24", "8_26","8_28","8_29","8_30", 9), "clusters"] <- "C3'"
+htap@meta.data[htap@meta.data$subclusters %in% c(2), "clusters"] <- "C4'"
+htap@meta.data[htap@meta.data$subclusters %in% c(6), "clusters"] <- "C5'"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_0"), "clusters"] <- "C6'"
+htap@meta.data[htap@meta.data$subclusters %in% c(5), "clusters"] <- "Cycling cells"
+
+
+# ALK1
+Idents(htap) <- "clusters"
+htap[["ALK1"]]=""
+htap[['ALK1']][which(htap@meta.data$clusters == "C1"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5"),] <- "ALK1 High"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6"),] <- "ALK1 Low"
+
+htap[['ALK1']][which(htap@meta.data$clusters == "C1'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5'"),] <- "ALK1 High+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "Cycling cells"),] <- "Cycling cells"
+
+DimPlot(htap, group.by = "clusters", label = T, cols = my_palette$cellColors)
+DimPlot(htap, group.by = "ALK1", label = T)
+DimPlot(htap, group.by = "condition", label = T)
+
+```
+
+# Save data
+
+
+```{r}
+# Save all data
+htap@misc$params$QC$seed <- the.seed
+htap@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(htap, paste(output.dir, "/rds/", "htap.rds", sep = ""))
+invisible(gc())
+
+# Save data without cycling cells
+Idents(htap) <- "clusters"
+htap <- subset(htap, idents = c("Cycling cells"), invert = T)
+htap@misc$params$QC$seed <- the.seed
+htap@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(htap, paste(output.dir, "/rds/", "htap_without_cycling.rds", sep = ""))
+invisible(gc())
+
+```
+
+
+
+# Clean data
+
+```{r}
+# Remove Sexual Sex‐Determining Genes
+sexual.genes <- read.csv("/data/data_mbouamboua/ref.markers/genes.table.csv")
+chrY.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "Y"]
+#chrX.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "X"]
+# Remove Sexual Sex‐Determining Genes
+htap <- htap[!grepl("XIST|RPS4Y1|AC006157.1|ZFY|ZFY-AS1|LINC00278|PCDH11Y|USP9Y|DDX3Y|UTY|TMSB4Y|TTTY14|AC010889.1|KDM5D|      EIF1AY|RPS4Y2", rownames(htap)), ]
+# Remove overabante genes
+htap <- htap[!grepl("MALAT1|FTL|^SFTP|^SCGB|FTH1|TIMP3|TXNIP|NEAT1|NTM|B2M|IGKC|LSAMP", rownames(htap)), ]
+# Remove MT, HB, Ribo genes
+htap <- htap[!grepl("^MT-|^MTRNR|^RP[LS][[:digit:]]|^HB[^(P)]", rownames(htap)), ]
+
+htap@misc$params$QC$seed <- the.seed
+htap@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(htap, paste(output.dir, "/rds/", "clean.rds", sep = ""))
+invisible(gc())
+
+```
+
+
+
+
+# Session Info
+
+
+```{r Rsession}
+# Print R session info
+utils::capture.output(devtools::session_info())
+```

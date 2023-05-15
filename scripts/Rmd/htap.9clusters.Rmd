@@ -1,0 +1,2631 @@
+---
+title: "DGE HTAP"
+author: "Yvon MBOUAMBOUA"
+date: "24/07/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  cache.lazy = FALSE,
+  tidy = TRUE
+)
+
+htap.dir <- "/Users/mbouamboua/IPMC/HTAP_Ly_Tu/"
+setwd(htap.dir)
+source("R/001_import.R")
+source("R/saveImageJPEG.R")
+color <- c('#F3766E','#A31E22','#FCCC0A','#a9c653','#53c653','#a7d6a7','#006600','#2da9d2','#466cb9','#b34d6d')
+
+  clust.col <- c('#2790D5','#F39C12', '#53c653', '#CA3006', 
+                 '#BB8FCE', '#784F31', '#F6B4EC', '#989798', '#C1CA06')
+  
+recepteur <- c("BMPR2", "TGFBR2", "ACTR2A", "ACTR2B", "ACVRL1", "ACVR1", "BMPR1A", "ACVR1B", "TGFBR1", "BMPR1B", "ACVR1C", "ALK1", "ALK2", "ALK4", "ALK5", "ALK6", "ALK7")
+
+EC <- read_csv("~/IPMC/HTAP_Ly_Tu/data/Long_List_EC.csv")
+EC.markers <- EC$Name
+```
+
+
+
+# Loading data
+
+```{r}
+# Loading sce object
+sce.htap <- readRDS("~/IPMC/HTAP_Ly_Tu/data/sce.htap.rds")
+
+# Convert sce to seurat object
+seurat.htap <- Seurat::as.Seurat(sce.htap)
+ seurat.htap <- SetIdent(seurat.htap, value = "cluster_louvain_k10")
+# Grouping some clusters
+seurat.htap[['louvain_k9']] <- ""
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 8),] <- 6
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 3),] <- 3
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 10),] <- 3
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 7),] <- 3
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 11),] <- 8
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 9),] <- 7
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 2),] <- 2
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 1),] <- 1
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 4),] <- 4
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 6),] <- 4
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 13),] <- 4
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 12),] <- 9
+seurat.htap[['louvain_k9']][which(seurat.htap@active.ident == 5),] <- 5
+
+
+
+# Number of cell by cluster
+clust.htap <- table(seurat.htap$louvain_k9)
+table.clust <- data.frame(sort(clust.htap, decreasing = T))
+barplot(t(table.clust), 
+        names.arg = table.clust$Var1,
+        col = "#85C1E9",
+        #horiz = T,
+        las = 1,
+        cex.names = 0.8,
+        ylab = "Cell numbers",
+        xlab = "Cell clusters",
+        main = "Number of cell per cluster"
+)
+
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+table(seurat.htap@meta.data$louvain_k9, seurat.htap@meta.data$Patients)
+
+
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+  
+  A <- DimPlot(seurat.htap, reduction = "UMAP", label = TRUE, pt.size = 0.00001, group.by = "louvain_k9",  cols =  clust.col) + labs(color = "louvain_k9") 
+  B <- DimPlot(seurat.htap, reduction = "UMAP", label = FALSE, pt.size = 0.00001, group.by = "Patients") + labs(color = "Patients")
+  C <- DimPlot(seurat.htap, reduction = "UMAP", label = FALSE,  pt.size = 0.00001, group.by = "BMP9") + labs(color = "BMP9")
+  D <- DimPlot(seurat.htap, reduction = "UMAP", label = FALSE,  pt.size = 0.00001, group.by = "Conditions") + labs(color = "Conditions")
+  A+B+C+D
+
+
+```
+
+
+## Expression heatmap by cluster
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+htap.markers <- FindAllMarkers(seurat.htap, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+top <- htap.markers %>% group_by(cluster) %>% top_n(n = nrow(htap.markers), wt = avg_logFC)
+
+write.table(top, file = "out/find_all_markers.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+
+top10 <- htap.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+features <- unique(top10$gene)
+
+#DoHeatmap(seurat.htap, features = features)
+
+
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("louvain_k9")])
+group <- factor(agg$louvain_k9)
+dge<- DGEList(assay(agg), group = group)
+dge <- dge$counts
+dge <- dge[features,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+dge <- t(apply(dge, 1, cal_z_score))
+
+
+colnames(dge) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9")
+#row.names(my_sample_col) <- colnames(dge)
+# pheatmap(dge, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 2")
+
+
+
+# Plot the heatmap
+p <- pheatmap(dge, angle_col=0, fontsize = 7, cluster_cols = T, cluster_rows = F, main = "Expression heatmap by cluster")
+
+saveImageJPEG(p, "expression_heatmap_by_cluster.jpeg")
+
+```
+
+## Average expression
+
+```{r}
+# Since we have placed cells into clusters, we can look at and compare the average expression within a cluster
+
+seurat.avg <- AverageExpression(seurat.htap)
+seurat.avg <- as.data.frame(seurat.avg)
+colnames(seurat.avg) <- c("Cluster 3","Cluster 4", "Cluster 6", "Cluster 8", "Cluster 7", "Cluster 2",   "Cluster 1", "Cluster 5", "Cluster 9")
+
+par(mfrow = c(2,2))
+plot(seurat.avg[,"Cluster 5"],seurat.avg[,"Cluster 7"],pch=16,cex=0.8 , xlab = "Cluster 5", ylab = "Cluster 7", main = "Average expression: cluster 5 vs cluster 7")
+plot(seurat.avg[,"Cluster 1"],seurat.avg[,"Cluster 6"],pch=16,cex=0.8 , xlab = "Cluster 1", ylab = "Cluster 6", main = "Average expression: cluster 1 vs cluster 6")
+plot(seurat.avg[,"Cluster 4"],seurat.avg[,"Cluster 3"],pch=16,cex=0.8,  xlab = "Cluster 4", ylab = "Cluster 3", main = "Average expression: cluster 4 vs cluster 3")
+plot(seurat.avg[,"Cluster 9"],seurat.avg[,"Cluster 8"],pch=16,cex=0.8, xlab = "Cluster 9", ylab = "Cluster 8", main = "Average expression: cluster 9 vs cluster 8")
+par(mfrow = c(1,1))
+```
+
+
+## Color by cluster
+
+```{r}
+
+  clust.col <- c('#2790D5','#F39C12', '#53c653', '#CA3006', 
+                 '#BB8FCE', '#784F31', '#F6B4EC', '#989798', '#C1CA06')
+  
+
+# Define cluster colours
+# Cluster 1
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster1']] <- " "
+seurat.htap[['cluster1']][which(seurat.htap@active.ident == 1),] <- 1
+seurat.htap <- SetIdent(seurat.htap, value = "cluster1")
+DimPlot(seurat.htap, group.by = "cluster1", cols = c("#C0C0C0", "#2790D5"), reduction = "UMAP", label = T, label.size = 5)
+ 
+# Cluster 2
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster2']] <- " "
+seurat.htap[['cluster2']][which(seurat.htap@active.ident == 2),] <- 2
+seurat.htap <- SetIdent(seurat.htap, value = "cluster2")
+DimPlot(seurat.htap, group.by = "cluster2", cols = c("#C0C0C0", "#F39C12"), reduction = "UMAP", label = T, label.size = 5)
+
+# Cluster 3
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster3']] <- " "
+seurat.htap[['cluster3']][which(seurat.htap@active.ident == 3),] <- 3
+seurat.htap <- SetIdent(seurat.htap, value = "cluster3")
+DimPlot(seurat.htap, group.by = "cluster3", cols = c("#C0C0C0", "#53c653"), reduction = "UMAP", label = T, label.size = 5)
+
+# Cluster 4
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster4']] <- " "
+seurat.htap[['cluster4']][which(seurat.htap@active.ident == 4),] <- 4
+seurat.htap <- SetIdent(seurat.htap, value = "cluster4")
+DimPlot(seurat.htap, group.by = "cluster4", cols = c("#C0C0C0", "#CA3006"), reduction = "UMAP", label = T, label.size = 5)
+
+
+# Cluster 5
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster5']] <- " "
+seurat.htap[['cluster5']][which(seurat.htap@active.ident == 5),] <- 5
+seurat.htap <- SetIdent(seurat.htap, value = "cluster5")
+DimPlot(seurat.htap, group.by = "cluster5", cols = c("#C0C0C0", "#BB8FCE"), reduction = "UMAP", label = T, label.size = 5)
+
+
+# Cluster 6
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster6']] <- " "
+seurat.htap[['cluster6']][which(seurat.htap@active.ident == 6),] <- 6
+seurat.htap <- SetIdent(seurat.htap, value = "cluster6")
+DimPlot(seurat.htap, group.by = "cluster6", cols = c("#C0C0C0", "#784F31"), reduction = "UMAP", label = T, label.size = 5)
+
+# Cluster 7
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster7']] <- " "
+seurat.htap[['cluster7']][which(seurat.htap@active.ident == 7),] <- 7
+seurat.htap <- SetIdent(seurat.htap, value = "cluster7")
+DimPlot(seurat.htap, group.by = "cluster7", cols = c("#C0C0C0", "#F6B4EC"), reduction = "UMAP", label = T, label.size = 5)
+
+# Cluster 8
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster8']] <- " "
+seurat.htap[['cluster8']][which(seurat.htap@active.ident == 8),] <- 8
+seurat.htap <- SetIdent(seurat.htap, value = "cluster8")
+DimPlot(seurat.htap, group.by = "cluster8", cols = c("#C0C0C0", "#566573"), reduction = "UMAP", label = T, label.size = 5)
+
+# Cluster 9
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+seurat.htap[['cluster9']] <- " "
+seurat.htap[['cluster9']][which(seurat.htap@active.ident == 9),] <- 9
+seurat.htap <- SetIdent(seurat.htap, value = "cluster9")
+DimPlot(seurat.htap, group.by = "cluster9", cols = c("#C0C0C0", "#C1CA06"), reduction = "UMAP", label = T, label.size = 5)
+
+```
+
+
+
+
+# Plot
+
+```{r}
+
+
+DimPlot(object = seurat.htap, reduction = "UMAP", label = FALSE,  group.by = "BMP9", cols = c('#00BFC4',"#C0C0C0")) +  ggplot2::ggtitle(label ="HTAP + CTRL dataset") + labs(color = "BMP9")
+
+DimPlot(object = seurat.htap, reduction = "UMAP", label = FALSE,  group.by = "BMP9", cols = c("#C0C0C0", "#F8766B")) +  ggplot2::ggtitle(label ="HTAP.BMP9 + CTRL.BMP9 dataset") + labs(color = "BMP9")
+
+```
+
+
+
+
+
+# Cell marker genes
+First we compute a ranking for the highly differential genes in each cluster. When looking for marker genes, we want genes that are positivelly and negativelly expressed in a cell type and possibly not expressed in the others.
+
+```{r}
+# Compute differentiall expression
+# htap.markers <-  FindAllMarkers(object = seurat.htap, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+# Compute differentiall expression
+sce.htap <- as.SingleCellExperiment(seurat.htap)
+
+htap.markers <- findMarkers(x = sce.htap, groups = sce.htap$louvain_k9, lfc = 0.5, pval.type = "all", direction = "any")
+
+# List of dataFrames with the results for each cluster
+htap.markers
+
+
+# Colect the top 25 genes for each cluster and put the into a single table
+top25 <- lapply(names(htap.markers), function(x) {
+    temp <- htap.markers[[x]][1:25, 1:2]
+    temp$gene <- rownames(htap.markers[[x]])[1:25]
+    temp$cluster <- x
+    return(temp)
+})
+top25 <- as_tibble(do.call(rbind, top25))
+top25
+
+par(mfrow = c(3,5))
+
+for (i in unique(top25$cluster)) {
+    barplot(sort(setNames(-log10(top25$p.value), top25$gene)[top25$cluster == i], F), horiz = T, las = 1, cex.axis = 0.8, cex.names = 0.6, col = "#3498DB", main = paste0(i, " vs. rest"), border = "white", yaxs = "i", xlab = "-log10FC")
+    abline(v = c(0, -log10(0.05)), lty = c(1, 2))
+}
+
+
+# Heatmap
+top5 <- as_tibble(top25) %>% group_by(cluster) %>% top_n(-5, p.value)
+
+i <- scater::plotHeatmap(sce.htap[, order(sce.htap$louvain_k9)], features = unique(top5$gene),center = T, zlim = c(-3, 3), colour_columns_by = c("Conditions","louvain_k9"), show_colnames = F, cluster_cols = F, cluster_row = T,  fontsize_row = 7, color = colorRampPalette(c("purple", "black", "yellow"))(120))
+
+saveImageJPEG(i, "heatmap.louvain9.jpeg")
+```
+
+
+
+
+# Differential gene expression
+
+# Analyse across conditions
+
+```{r}
+HTAP <- sce.htap[, sce.htap$BMP9 == "0 ng/ml"]
+BMP9 <- sce.htap[, sce.htap$BMP9 == "10 ng/ml"]
+HTAP.BMP_HTAP <- sce.htap[, sce.htap$Conditions == c("HTAP", "HTAP.BMP9")]
+CTRL.BMP_CTRL <- sce.htap[, sce.htap$Conditions == c("CTRL", "CTRL.BMP9")]
+HTAP.BMP_CTRL.BMP <- sce.htap[, sce.htap$Conditions == c("HTAP.BMP9", "CTRL.BMP9")]
+
+```
+
+
+
+# HTAP vs CTRL by cluster
+
+## Cluster 2
+
+```{r}
+cluster2 <- sce.htap[, sce.htap$louvain_k9 == 2]
+
+# DGE using limma
+agg <- aggregateAcrossCells(cluster2, ids = colData(cluster2)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable2 <- limma::topTable(efit, number = "Inf")
+topTable2$cluster <- rep("cluster2", nrow(topTable2))
+#topTable2 <- topTable2[order(topTable2$B), ]
+top.markers2 <- topTable2[topTable2$adj.P.Val <= 0.05, ]
+#View(top.markers2)
+top.genes.c2 <- rownames(top.markers2)
+
+
+# scater::plotHeatmap(cluster2[, order(cluster2$louvain_k9)], 
+#                     features = top.genes.c2, 
+#                     center = T, 
+#                     zlim = c(-3, 3), 
+#                     scale.row = scale,
+#                     colour_columns_by = c("louvain_k9", "Conditions"),
+#                     order_columns_by = c("Conditions"),
+#                     show_colnames = F, 
+#                     show_rownames = T,
+#                     cluster_cols = F,
+#                     cluster_row = F,
+#                     fontsize_row = 6, 
+#                     color = colorRampPalette(c("purple", "black", "yellow"))(90)) 
+
+#ggplot2::ggtitle(label = "HTAP vs CTRL top genes expression heatmap in cluster 8")
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster2, ids = colData(cluster2)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c2,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+#mat2 <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+# pheatmap(mat2, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 2")
+
+# Beware: you must to subset the receptors of BMP-TGF pathways in data (subset <- data[receptors,])
+# pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Receptors of BMP-TGF pathways in cluster 2")
+#saveImageJPEG(p, "expression.heatmap.htap.vs.ctrl.jpeg")
+
+
+# agg <- aggregateAcrossCells(cluster2, ids = colData(cluster2)[,c("Patients")])
+# group <- factor(agg$Patients)
+# dge <- DGEList(assay(agg), group = group)
+# data <- dge$counts
+# clust.genes <- rownames(data)
+# common <- intersect(recepteur, clust.genes)
+# subset <- data[common,]
+# cal_z_score <- function(x){
+#   (x - mean(x)) / sd(x)
+# }
+# mat <- t(apply(subset, 1, cal_z_score))
+# 
+# pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 2")
+
+
+
+
+
+# Maplot
+maplot <- topTable2[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of differential gene expression in cluster 2 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+#saveImageJPEG(p, "ggmaplot.cluster2.jpeg")
+
+# Volcanoplot
+
+EnhancedVolcano(topTable2,
+    lab = rownames(topTable2),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression in cluster 2",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+# BMPR-TGF pathways ceceptors
+
+# Violin plot
+seurat.c2 <- Seurat::as.Seurat(cluster2)
+VlnPlot(object = seurat.c2, features = recepteur, pt.size = 0.01, group.by = "Patients")
+VlnPlot(object = seurat.c2, features = "MRPS35", pt.size = 0.01, group.by = "Patients") + ggplot2::labs(title="Level expression of MRPS35 marker in cluster 2", x = "Patients")
+
+```
+
+
+
+
+## Cluster 3
+
+```{r}
+cluster3 <- HTAP[, HTAP$louvain_k9 == 3]
+
+# DGE using limma
+agg <- aggregateAcrossCells(cluster3, ids = colData(cluster3)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge3 <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge3, group=group)
+dge3 <- dge3[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge3 <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable3 <- limma::topTable(efit, number = "Inf")
+topTable3$cluster <- rep("cluster3", nrow(topTable3))
+#topTable3 <- topTable8[order(topTable3$B), ]
+top.markers3 <- topTable3[topTable3$adj.P.Val <= 0.05, ]
+top.markers3 <- topTable3[abs(topTable3$logFC) > 1 & topTable3$P.Value <= 0.05, ]
+
+View(top.markers3)
+top.genes.c3 <- rownames(top.markers3)
+
+# scater::plotHeatmap(cluster3[, order(cluster3$louvain_k9)], 
+#                     features = top.genes.c3, 
+#                     center = T, 
+#                     zlim = c(-3, 3), 
+#                     scale.row = scale,
+#                     colour_columns_by = c("louvain_k9", "Conditions"),
+#                     order_columns_by = c("Conditions"),
+#                     show_colnames = F, 
+#                     show_rownames = T,
+#                     cluster_cols = F,
+#                     cluster_row = F,
+#                     fontsize_row = 6, 
+#                     color = colorRampPalette(c("purple", "black", "yellow"))(90)) 
+
+#ggplot2::ggtitle(label = "HTAP vs CTRL top genes expression heatmap in cluster 8")
+
+
+# Pheatmap
+agg3 <- aggregateAcrossCells(cluster3, ids = colData(cluster3)[,c("Patients")])
+group <- factor(agg3$Patients)
+dge3 <- DGEList(assay(agg3), group = group)
+data3 <- dge3$counts
+subset3 <- data3[top.genes.c3,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat3 <- t(apply(subset3, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat3,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 3 (logFC > 1, Pvalue ≤ 0.05)")
+
+# Beware: you must to subset the receptors of BMP-TGF pathways in data (subset <- data[receptors,])
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Receptors of BMP-TGF pathways in cluster 3 ")
+#saveImageJPEG(p, "expression.heatmap.htap.vs.ctrl.jpeg")
+
+
+agg <- aggregateAcrossCells(cluster3, ids = colData(cluster3)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+
+col_groups <- substr(colnames(mat), 1, 1)
+
+table(col_groups)
+mat[,col_groups == "1"] <- mat[,col_groups == "1"] * 5
+mat_col <- data.frame(group = col_groups)
+rownames(mat_col) <- colnames(mat)
+
+pheatmap(
+  mat               = mat,
+  #color             = inferno(10),
+  border_color      = NA,
+  show_colnames     = FALSE,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+ # annotation_colors = mat_colors,
+  drop_levels       = TRUE,
+  fontsize          = 14,
+  main              = "Default Heatmap"
+)
+
+
+
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 3")
+
+
+# Maplot
+maplot <- topTable3[, c("AveExpr", "logFC", "P.Value")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP + CTRL in cluster 3 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+#saveImageJPEG(p, "ggmaplot.cluster3.jpeg")
+
+# Volcanoplot
+
+EnhancedVolcano(topTable3,
+    lab = rownames(topTable3),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP + CTRL in cluster 3",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c3 <- Seurat::as.Seurat(cluster3)
+FeaturePlot(seurat.htap, reduction = "TSNE", label.size = 2, cols = c("grey", "red"), features = recepteur, min.cutoff = "q1")
+
+VlnPlot(object = seurat.c3, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+```
+
+
+## Cluster 6
+
+```{r}
+cluster6 <- HTAP[, HTAP$louvain_k9 == 6]
+
+# DGE using limma
+agg <- aggregateAcrossCells(cluster6, ids = colData(cluster6)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable6 <- limma::topTable(efit, number = "Inf")
+topTable6$cluster <- rep("cluster6", nrow(topTable6))
+#top.markers6 <- topTable6[topTable6$adj.P.Val <= 0.05, ]
+top.markers6 <- topTable6[abs(topTable6$logFC) > 1 & topTable6$P.Value <= 0.05, ]
+
+View(top.markers6)
+top.genes.c6 <- rownames(top.markers6)
+
+scater::plotHeatmap(cluster6[, order(cluster6$louvain_k9)], 
+                    features = top.genes.c6, 
+                    center = T, 
+                    zlim = c(-3, 3), 
+                    scale.row = scale,
+                    colour_columns_by = c("louvain_k9", "Conditions"),
+                    order_columns_by = c("Conditions"),
+                    show_colnames = F, 
+                    show_rownames = T,
+                    cluster_cols = F,
+                    cluster_row = F,
+                    fontsize_row = 6, 
+                    color = colorRampPalette(c("purple", "black", "yellow"))(90)) 
+
+#ggplot2::ggtitle(label = "HTAP vs CTRL top genes expression heatmap in cluster 8")
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster6, ids = colData(cluster6)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c6,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 6 (logFC > 1, Pvalue ≤ 0.05)")
+
+# Beware: you must to subset the receptors of BMP-TGF pathways in data (subset <- data[receptors,])
+# pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Receptors of BMP-TGF pathways in cluster 6")
+#saveImageJPEG(p, "expression.heatmap.htap.vs.ctrl.jpeg")
+
+
+agg <- aggregateAcrossCells(cluster6, ids = colData(cluster6)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 6")
+
+
+
+
+
+# Maplot
+maplot <- topTable6[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP + CTRL in cluster 6 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+#saveImageJPEG(p, "ggmaplot.cluster6.jpeg")
+
+# Volcanoplot
+
+EnhancedVolcano(topTable6,
+    lab = rownames(topTable6),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+     title = "Differential Gene Expression \n
+    HTAP + CTRL in cluster 6",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c6.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-5,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c6 <- Seurat::as.Seurat(cluster6)
+FeaturePlot(seurat.htap, reduction = "TSNE", label.size = 2, cols = c("grey", "red"), features = recepteur, min.cutoff = "q1")
+
+VlnPlot(object = seurat.c6, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+```
+
+
+
+
+## Cluster 7
+
+```{r}
+cluster7 <- HTAP[, HTAP$louvain_k9 == 7]
+
+# DGE using limma
+agg <- aggregateAcrossCells(cluster7, ids = colData(cluster7)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable7 <- limma::topTable(efit, number = "Inf")
+topTable7$cluster <- rep("cluster7", nrow(topTable7))
+#top.markers7 <- topTable7[topTable7$adj.P.Val <= 0.05, ]
+top.markers7 <- topTable7[abs(topTable7$logFC) > 1 & topTable7$P.Value <= 0.05, ]
+
+View(top.markers7)
+top.genes.c7 <- rownames(top.markers7)
+
+
+#ggplot2::ggtitle(label = "HTAP vs CTRL top genes expression heatmap in cluster 8")
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster7, ids = colData(cluster7)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c7,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 7 (logFC > 1, Pvalue ≤ 0.05)")
+
+# Beware: you must to subset the receptors of BMP-TGF pathways in data (subset <- data[receptors,])
+# pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Receptors of BMP-TGF pathways in cluster 7")
+#saveImageJPEG(p, "expression.heatmap.htap.vs.ctrl.jpeg")
+
+
+agg <- aggregateAcrossCells(cluster7, ids = colData(cluster7)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 7")
+
+
+
+
+
+# Maplot
+maplot <- topTable7[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP + CTRL in cluster 7 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+#saveImageJPEG(p, "ggmaplot.cluster7.jpeg")
+
+# Volcanoplot
+
+EnhancedVolcano(topTable7,
+    lab = rownames(topTable7),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+     title = "Differential Gene Expression \n
+    HTAP + CTRL in cluster 7",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c7.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c7 <- Seurat::as.Seurat(cluster7)
+# FeaturePlot(seurat.htap, reduction = "TSNE", label.size = 2, cols = c("grey", "red"), features = recepteur, min.cutoff = "q1")
+
+VlnPlot(object = seurat.c7, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+```
+
+
+
+## Cluster 8
+
+```{r}
+#cluster8 <- HTAP[, HTAP$louvain_k9 == 8]
+
+cluster8 <- sce.htap[, sce.htap$louvain_k9 == 8]
+
+
+# DGE using limma
+agg <- aggregateAcrossCells(cluster8, ids = colData(cluster8)[,c("louvain_k9", "Patients")])
+colData(agg)[,c("Patients", "ncells")]
+
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+count8 <- dge$counts
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             #CTRL.vs.HTAP = CTRL - HTAP,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable8 <- limma::topTable(efit, number = "Inf")
+topTable8$cluster <- rep("cluster8", nrow(topTable8))
+#top.markers8 <- topTable8[topTable8$adj.P.Val <= 0.05, ]
+#top.markers8 <- topTable8[abs(topTable8$logFC) > 1 & topTable8$P.Value <= 0.05, ]
+
+topTable8$genes <- rownames(topTable8)
+colnames(topTable8) <- c("logFC.HTAP.vs.CTRL", "AveExpr", "t", "P.Value" , "adj.P.Val", "B" ,  "cluster" ,  "genes")
+View(topTable8)
+top.genes.c8 <- rownames(top.markers8)
+
+
+#ggplot2::ggtitle(label = "HTAP vs CTRL top genes expression heatmap in cluster 8")
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster8, ids = colData(cluster8)[,c("Patients", "Conditions")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+data <- as.data.frame(data)
+data$genes <- rownames(data)
+colnames(data) <- c("CTRL1", "CTRL2", "CTRL3", "CTRL4", "CTRL5", "HTAP1", "HTAP2", "HTAP3", "HTAP5", "genes")
+
+
+new8topTable <- merge(x = data, y = topTable8, by = "genes")
+
+write.table(new8topTable, file = "out/cluster8.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+View(new8topTable)
+
+subset <- data[top.genes.c8,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 8 (logFC > 1, Pvalue ≤ 0.05)")
+
+# Beware: you must to subset the receptors of BMP-TGF pathways in data (subset <- data[receptors,])
+# pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Receptors of BMP-TGF pathways in cluster 8")
+#saveImageJPEG(p, "expression.heatmap.htap.vs.ctrl.jpeg")
+
+
+agg8 <- aggregateAcrossCells(cluster8, ids = colData(cluster8)[,c("Patients")])
+group <- factor(agg8$Patients)
+dge8 <- DGEList(assay(agg8), group = group)
+data8 <- dge8$counts
+clust.genes <- rownames(data8)
+common <- intersect(recepteur, clust.genes)
+subset8 <- data8[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat8 <- t(apply(subset8, 1, cal_z_score))
+
+pheatmap(subset8, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 8")
+
+
+# Maplot
+maplot <- topTable8[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP vs CTRL in cluster 8 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.2,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 5,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+#saveImageJPEG(p, "ggmaplot.cluster8.jpeg")
+
+# Volcanoplot
+
+EnhancedVolcano(topTable8,
+    lab = rownames(topTable8),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP vs CTRL in cluster 8",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c8.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c8 <- Seurat::as.Seurat(cluster8)
+FeaturePlot(seurat.htap, reduction = "TSNE", label.size = 2, cols = c("grey", "red"), features = recepteur, min.cutoff = "q1")
+
+VlnPlot(object = seurat.c8, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+
+agg <- aggregateAcrossCells(cluster8, ids = colData(cluster8)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 8")
+
+
+## Subcluster in cluster 8
+
+seurat.htap.c8 <- subset(x = seurat.htap, louvain_k9 == 8)
+seurat.htap.c8 <- NormalizeData(object = seurat.htap.c8)
+seurat.htap.c8 <- FindVariableFeatures(object = seurat.htap.c8, selection.method = "vst", nfeatures = 2000)
+seurat.htap.c8 <- ScaleData(object = seurat.htap.c8)
+seurat.htap.c8 <- RunPCA(object = seurat.htap.c8)
+seurat.htap.c8 <- FindNeighbors(object = seurat.htap.c8)
+seurat.htap.c8 <- FindClusters(object = seurat.htap.c8)
+seurat.htap.c8 <- RunTSNE(object = seurat.htap.c8)
+#ElbowPlot(seurat.htap.c8)
+seurat.htap.c8 <- RunUMAP(object = seurat.htap.c8, dims = 1:20)
+DimPlot(object = seurat.htap.c8, reduction = "umap", label = F, pt.size = 5) + ggplot2::ggtitle(label ="Sub-cluster 8")
+
+# Find markers for every cluster compared to all remaining cells, report only the positive ones
+c8.markers <- FindAllMarkers(seurat.htap.c8, min.pct = 0.25, logfc.threshold = 0.25, only.pos = TRUE)
+
+top5 <- c8.markers %>% dplyr::group_by(cluster) %>% dplyr::top_n(n = 20, wt = avg_logFC)
+
+DoHeatmap(seurat.htap.c8, features = top5$gene, angle = 45, size = 4) + labs(colour="Clusters", title = "Expression heatmap - Sub-cluster 8", 
+       #subtitle = "toto", 
+       #x = "Clusters", 
+       y = "Gene markers") 
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+# HTAP.BMP vs CTRL.BMP by cluster
+
+## Cluster 1
+
+```{r}
+cluster1 <- BMP9[, BMP9$louvain_k9 == 1]
+agg <- aggregateAcrossCells(cluster1, ids = colData(cluster1)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.BMP9.vs.CTRL.BMP9 = HTAP.BMP9 - CTRL.BMP9,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable1<- limma::topTable(efit, number = "Inf")
+topTable1$cluster <- rep("cluster1", nrow(topTable1))
+#top.markers1 <- topTable1[topTable1$adj.P.Val <= 0.05, ]
+top.markers1 <- topTable1[abs(topTable1$logFC) > 1 & topTable1$P.Value <= 0.05, ]
+
+View(top.markers1)
+top.genes.c1 <- rownames(top.markers1)
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster1, ids = colData(cluster1)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c1,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 1 (logFC > 1, Pvalue ≤ 0.05)")
+
+
+
+# Maplot
+maplot <- topTable1[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP.BMP9 vs CTRL.BMP9  in cluster 1 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+
+# Volcanoplot
+
+EnhancedVolcano(topTable1,
+    lab = rownames(topTable1),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 vs CTRL.BMP9 in cluster 1",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.0,
+    #labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_classic()
+
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c1 <- Seurat::as.Seurat(cluster1)
+VlnPlot(object = seurat.c1, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+agg <- aggregateAcrossCells(cluster1, ids = colData(cluster1)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+p1 <- pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 1")
+
+```
+
+
+## Cluster 4
+
+
+```{r}
+cluster4 <- BMP9[, BMP9$louvain_k9 == 4]
+agg <- aggregateAcrossCells(cluster4, ids = colData(cluster4)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge4 <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge4, group=group)
+dge4 <- dge4[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge4 <- calcNormFactors(dge4, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.BMP9.vs.CTRL.BMP9 = HTAP.BMP9 - CTRL.BMP9,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable4<- limma::topTable(efit, number = "Inf")
+topTable4$cluster <- rep("cluster4", nrow(topTable4))
+#top.markers4 <- topTable4[topTable4$adj.P.Val <= 0.05, ]
+top.markers4 <- topTable4[abs(topTable4$logFC) > 1 & topTable4$P.Value <= 0.05, ]
+
+#View(top.markers4)
+top.genes.c4 <- rownames(top.markers4)
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster4, ids = colData(cluster4)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c4,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 4 (logFC > 1, Pvalue ≤ 0.05)")
+
+
+
+# Maplot
+maplot <- topTable4[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+
+View(maplot)
+maplot <- round(maplot, digits = 4)
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP.BMP9 vs CTRL.BMP9 DGE in cluster 4 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+
+# Volcanoplot
+
+EnhancedVolcano(topTable4,
+    lab = rownames(topTable4),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 + CTRL.BMP9 in cluster 4",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.0,
+    #labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_classic()
+
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c4 <- Seurat::as.Seurat(cluster4)
+VlnPlot(object = seurat.c4, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+agg <- aggregateAcrossCells(cluster4, ids = colData(cluster4)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+p4 <- pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 4")
+
+```
+
+
+## Cluster 5
+
+
+```{r}
+cluster5 <- BMP9[, BMP9$louvain_k9 == 5]
+agg <- aggregateAcrossCells(cluster5, ids = colData(cluster5)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.BMP9.vs.CTRL.BMP9 = HTAP.BMP9 - CTRL.BMP9,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable5<- limma::topTable(efit, number = "Inf")
+topTable5$cluster <- rep("cluster5", nrow(topTable5))
+#top.markers5 <- topTable5[topTable5$adj.P.Val < 0.05, ]
+top.markers5 <- topTable5[abs(topTable5$logFC) > 1 & topTable5$P.Value <= 0.05, ]
+
+#View(top.markers5)
+top.genes.c5 <- rownames(top.markers5)
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster5, ids = colData(cluster5)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c5,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 5 (logFC > 1, Pvalue ≤ 0.05)")
+
+
+
+# Maplot
+maplot <- topTable5[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of HTAP.BMP9 + CTRL.BMP9 in cluster 5 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 15,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+
+# Volcanoplot
+
+EnhancedVolcano(topTable5,
+    lab = rownames(topTable5),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 + CTRL.BMP9 in cluster 5",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.0,
+    #labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_classic()
+
+
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c5 <- Seurat::as.Seurat(cluster5)
+VlnPlot(object = seurat.c5, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+agg <- aggregateAcrossCells(cluster5, ids = colData(cluster5)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 5")
+
+```
+
+
+## Cluster 9
+
+
+```{r}
+cluster9 <- BMP9[, BMP9$louvain_k9 == 9]
+agg <- aggregateAcrossCells(cluster9, ids = colData(cluster9)[,c("Conditions", "Patients")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+
+# Removing genes that are lowly expressed
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+
+### Normalising gene expression distributions
+dge <- calcNormFactors(dge, method = "TMM")
+
+### Creating a design matrix and contrasts
+# Desing matrix HTAP and CTRL conditions
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+#design
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+cont.matrix <- makeContrasts(HTAP.BMP9.vs.CTRL.BMP9 = HTAP.BMP9 - CTRL.BMP9,
+                             levels=colnames(design))
+
+v <- voom(dge, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+topTable9<- limma::topTable(efit, number = "Inf")
+topTable9$cluster <- rep("cluster9", nrow(topTable9))
+#top.markers9 <- topTable9[topTable9$adj.P.Val <= 0.05, ]
+top.markers9 <- topTable9[abs(topTable9$logFC) > 1 & topTable9$P.Value <= 0.05, ]
+
+#View(top.markers9)
+top.genes.c9 <- rownames(top.markers9)
+
+
+# Pheatmap
+agg <- aggregateAcrossCells(cluster9, ids = colData(cluster9)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+subset <- data[top.genes.c9,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+pheatmap(mat, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of top genes in cluster 9 (logFC > 1, Pvalue ≤ 0.05)")
+
+
+
+# Maplot
+maplot <- topTable9[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot HTAP.BMP9 vs CTRL.BMP9 in cluster 9 (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.5,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 10,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic())
+
+
+# Volcanoplot
+
+EnhancedVolcano(topTable9,
+    lab = rownames(topTable9),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 vs CTRL.BMP9 in cluster 9",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.0,
+    #labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_classic()
+
+
+# BMPR-TGF pathways ceceptors
+
+# Featureplot
+seurat.c9 <- Seurat::as.Seurat(cluster9)
+VlnPlot(object = seurat.c9, features = recepteur, pt.size = 0.01, group.by = "Patients")
+
+agg <- aggregateAcrossCells(cluster9, ids = colData(cluster9)[,c("Patients")])
+group <- factor(agg$Patients)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+clust.genes <- rownames(data)
+common <- intersect(recepteur, clust.genes)
+subset <- data[common,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+
+pheatmap(subset, angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of receptors of BMP-TGF pathways in cluster 9")
+
+```
+
+
+
+# Global heatmap for top gene markers from all clusters
+
+```{r}
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Conditions")])
+group <- factor(agg$Conditions)
+df <- DGEList(assay(agg), group = group)
+dat <- df$counts
+
+# Select top genes in all clusters
+topGenes <- unique(c(top.genes.c1, top.genes.c2, top.genes.c3, top.genes.c4, top.genes.c5, top.genes.c6, top.genes.c7, top.genes.c8, top.genes.c9))
+                   
+subset <- dat[topGenes,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+mat <- t(apply(subset, 1, cal_z_score))
+# my_sample_col <- data.frame(Cluster = c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13"))
+# row.names(my_sample_col) <- colnames(subset1)
+
+
+
+agg.clust <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("louvain_k9")])
+group <- factor(agg.clust$louvain_k9)
+df.clust <- DGEList(assay(agg.clust), group = group)
+df.clust <- df.clust$counts
+colnames(df.clust) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9")
+df.clust <- df.clust[topGenes,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+df.clust <- t(apply(df.clust, 1, cal_z_score))
+
+
+
+# Heatmap by patients
+agg.patients <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Patients")])
+group <- factor(agg.patients$louvain_k9)
+df.pat <- DGEList(assay(agg.patients), group = group)
+df.pat <- df.pat$counts
+# colnames(df.clust) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9", "cluster10", "cluster11", "cluster12", "cluster13")
+df.pat <- df.pat[topGenes,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+df.pat <- t(apply(df.pat, 1, cal_z_score))
+
+
+# Plot the heatmap
+a <- pheatmap(mat[1:50,], angle_col=45, fontsize = 5, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of 50 top genes by conditions")
+
+b <- pheatmap(df.clust[1:50,], angle_col=45, fontsize = 7, cluster_cols = T, cluster_rows = T, main = "Expression heatmap of 50 top genes by cell cluster")
+
+c <- pheatmap(df.pat[1:50,], angle_col=45, fontsize = 7, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of 50 top genes by patient")
+
+saveImageJPEG(a, "expression.heatmap.by.condition.jpeg")
+saveImageJPEG(b, "expression.heatmap.by.cluster.jpeg")
+saveImageJPEG(c, "expression.heatmap.by.patient.jpeg")
+```
+
+
+
+
+# DGE by condition
+
+## Convert counts to DGEList object
+
+```{r}
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Conditions", "Patients")])
+
+#colData(agg)[,c("Conditions", "Patients", "ncells")]
+
+group <- factor(agg$Conditions) 
+file <- assay(agg)
+
+dge <- DGEList(file, group = group)
+
+dge$samples
+dge$counts
+
+
+### Removing genes that are lowly expressed
+
+keep.exprs <- filterByExpr(dge, group=group)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+dim(dge)
+
+
+### Normalising gene expression distributions
+
+dge <- calcNormFactors(dge, method = "TMM")
+dge$samples$norm.factors
+
+
+# Desing matrix
+design <- model.matrix(~0+group)
+colnames(design) <- gsub("group", "", colnames(design))
+design
+
+
+#Contrast matrix: Then, we must tell limma whom we are going to compare with whom.
+
+cont.matrix <- makeContrasts(HTAP.vs.CTRL = HTAP - CTRL,
+                             HTAP.BMP9.vs.CTRL.BMP9 = HTAP.BMP9 - CTRL.BMP9,
+                             HTAP.BMP9.vs.HTAP = HTAP.BMP9 - HTAP,
+                             CTRL.BMP9.vs.CTRL = CTRL.BMP9 - CTRL,
+                             HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL = (HTAP.BMP9 - HTAP) - (CTRL.BMP9 - CTRL),
+                             levels=colnames(design))
+
+
+
+### Removing heteroscedascity from count data and fitting linear models for comparisons of interest
+#par(mfrow=c(1,2))
+v <- voom(dge, design, plot=F)
+vfit <- lmFit(v, design)
+
+vfit <- contrasts.fit(vfit, contrasts=cont.matrix)
+efit <- eBayes(vfit, robust = TRUE)
+
+
+# plotSA(efit, main="Final model: Mean-variance trend")
+# qqt(efit$t,df=efit$df.prior+efit$df.residual,pch=1,cex=0.5, col = "blue")
+# abline(0,1, col = "red")
+
+
+```
+
+
+## Examining the number of DE genes by condtion
+
+Some studies require more than an adjusted p-value cut-off. For a stricter definition on significance, one may require log-fold-changes (log-FCs) to be above a minimum value. The treat method (McCarthy and Smyth 2009) can be used to calculate p-values from empirical Bayes moderated t-statistics with a minimum log-FC requirement.
+
+
+Genes that are DE in multiple comparisons can be extracted using the results from decideTests, where 0s represent genes that are not DE, 1s represent genes that are up-regulated, and -1s represent genes that are down-regulated.
+
+```{r}
+#summary(decideTests(efit))
+
+tfit <- treat(vfit, lfc=1)
+dt <- decideTests(tfit)
+summary(dt)
+
+
+tfit <- treat(efit)
+dt <- decideTests(tfit)
+summary(dt)
+
+
+
+HTAP.vs.CTRL <- topTreat(tfit, coef=1, n=Inf)
+HTAP.BMP9.vs.CTRL.BMP9 <- topTreat(tfit, coef=2, n=Inf)
+HTAP.BMP9.vs.HTAP <- topTreat(tfit, coef=3, n=Inf)
+CTRL.BMP9.vs.CTRL <- topTreat(tfit, coef=4, n=Inf)
+HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL <- topTreat(tfit, coef=5, n=Inf)
+
+HTAP.vs.CTRL$Genes <- rownames(HTAP.vs.CTRL)
+HTAP.BMP9.vs.CTRL.BMP9$Genes <- rownames(HTAP.BMP9.vs.CTRL.BMP9)
+HTAP.BMP9.vs.HTAP$Genes <- rownames(HTAP.BMP9.vs.HTAP)
+CTRL.BMP9.vs.CTRL$Genes <- rownames(CTRL.BMP9.vs.CTRL)
+HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL$Genes <- rownames(HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL)
+
+write.table(HTAP.vs.CTRL, file = "out/HTAP.vs.CTRL.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+write.table(HTAP.BMP9.vs.CTRL.BMP9, file = "out/HTAP.BMP9.vs.CTRL.BMP9.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+write.table(HTAP.BMP9.vs.HTAP, file = "out/HTAP.BMP9.vs.HTAP.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+write.table(CTRL.BMP9.vs.CTRL, file = "out/CTRL.BMP9.vs.CTRL.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+write.table(HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL, file = "out/HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+
+# Combine all data frames
+htap.combined <- 
+  cbind.data.frame(HTAP.vs.CTRL, 
+                   HTAP.BMP9.vs.CTRL.BMP9,
+                   HTAP.BMP9.vs.HTAP, 
+                   CTRL.BMP9.vs.CTRL,
+                   HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL)
+# Create the gene name columns
+htap.combined$name <- paste0(rownames(htap.combined))
+View(htap.combined)
+# Remove the ininterest columns
+htap.combined <- htap.combined[, -c(3, 8, 13, 18, 23)]
+
+# Rename combined data frame
+colnames(htap.combined) <- c("logFC.HTAP.vs.CTRL", 
+                             "AveExpr.HTAP.vs.CTRL",
+                             "P.Value.HTAP.vs.CTRL",
+                             "adj.P.Val.HTAP.vs.CTRL",
+                             "logFC.HTAP.BMP9.vs.CTRL.BMP9",
+                             "AveExpr.HTAP.BMP9.vs.CTRL.BMP9",
+                             "P.Value.HTAP.BMP9.vs.CTRL.BMP9",
+                             "adj.P.Val.HTAP.BMP9.vs.CTRL.BMP9",
+                             "logFC.HTAP.BMP9.vs.HTAP", 
+                             "AveExpr.HTAP.BMP9.vs.HTAP",
+                             "P.Value.HTAP.BMP9.vs.HTAP",
+                             "adj.P.Val.HTAP.BMP9.vs.HTAP",
+                             "logFC.CTRL.BMP9.vs.CTRL",
+                             "AveExpr.CTRL.BMP9.vs.CTRL",
+                             "P.Value.CTRL.BMP9.vs.CTRL",
+                             "adj.P.Val.CTRL.BMP9.vs.CTRL",
+                             "logFC.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                             "AveExpr.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                             "P.Value.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                             "adj.P.Val.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                             "name") 
+
+htap.combined <- htap.combined[, c("name",
+                                   "logFC.HTAP.vs.CTRL", 
+                                   "AveExpr.HTAP.vs.CTRL",
+                                   "P.Value.HTAP.vs.CTRL",
+                                   "adj.P.Val.HTAP.vs.CTRL",
+                                   "logFC.HTAP.BMP9.vs.CTRL.BMP9",
+                                   "AveExpr.HTAP.BMP9.vs.CTRL.BMP9",
+                                   "P.Value.HTAP.BMP9.vs.CTRL.BMP9",
+                                   "adj.P.Val.HTAP.BMP9.vs.CTRL.BMP9",
+                                   "logFC.HTAP.BMP9.vs.HTAP", 
+                                   "AveExpr.HTAP.BMP9.vs.HTAP",
+                                   "P.Value.HTAP.BMP9.vs.HTAP",
+                                   "adj.P.Val.HTAP.BMP9.vs.HTAP",
+                                   "logFC.CTRL.BMP9.vs.CTRL",
+                                   "AveExpr.CTRL.BMP9.vs.CTRL",
+                                   "P.Value.CTRL.BMP9.vs.CTRL",
+                                   "adj.P.Val.CTRL.BMP9.vs.CTRL",
+                                   "logFC.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "AveExpr.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "P.Value.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "adj.P.Val.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL") ]
+#View(htap.combined)
+#dim(htap.combined)
+htap.genes <- rownames(htap.combined)
+nb.htap.genes <- length(unique(htap.genes))
+
+message("Gathering information from gprofiler2 for ", nb.htap.genes," HTAP DE genes")
+
+gprofiler2.htap <- gprofiler2::gconvert(query = htap.genes, organism = "hsapiens", target="ENSG", mthreshold = Inf, filter_na = TRUE)
+gprofiler2.htap <- gprofiler2.htap[, -c(1:3)]
+gprofiler2.htap <- gprofiler2.htap[, c("name","target", "description")]
+#View(gprofiler2.htap)
+dim(gprofiler2.htap)
+
+## Merging data
+limma.htap.results <- merge.data.frame(htap.combined, gprofiler2.htap, by = 1)
+
+
+
+limma.htap.results <- limma.htap.results[, c("name",
+                                             "target",
+                                             "logFC.HTAP.vs.CTRL", 
+                                             "AveExpr.HTAP.vs.CTRL",
+                                             "P.Value.HTAP.vs.CTRL",
+                                             "adj.P.Val.HTAP.vs.CTRL",
+                                             "logFC.HTAP.BMP9.vs.CTRL.BMP9",
+                                             "AveExpr.HTAP.BMP9.vs.CTRL.BMP9",
+                                             "P.Value.HTAP.BMP9.vs.CTRL.BMP9",
+                                             "adj.P.Val.HTAP.BMP9.vs.CTRL.BMP9",
+                                             "logFC.HTAP.BMP9.vs.HTAP", 
+                                             "AveExpr.HTAP.BMP9.vs.HTAP",
+                                             "P.Value.HTAP.BMP9.vs.HTAP",
+                                             "adj.P.Val.HTAP.BMP9.vs.HTAP",
+                                             "logFC.CTRL.BMP9.vs.CTRL",
+                                             "AveExpr.CTRL.BMP9.vs.CTRL",
+                                             "P.Value.CTRL.BMP9.vs.CTRL",
+                                             "adj.P.Val.CTRL.BMP9.vs.CTRL",
+                                             "logFC.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "AveExpr.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "P.Value.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                   "adj.P.Val.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL",
+                                             "description") ]
+#View(limma.htap.results)
+
+write.table(limma.htap.results, file = "out/htap.results.by.condition.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+```
+
+
+```{r}
+matrice <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,"louvain_k9"])
+group <- factor(matrice$louvain_k9) 
+dge <- DGEList(assay(matrice), group = group)
+matrice <- dge$counts
+
+colnames(matrice) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9")
+
+
+patient <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,"Patients"])
+group <- factor(patient$Patients) 
+dge <- DGEList(assay(patient), group = group)
+patient <- dge$counts
+
+
+```
+
+
+## HTAP.vs.CTRL
+
+```{r}
+# Heatmap
+top.HTAP.vs.CTRL <- HTAP.vs.CTRL[abs(HTAP.vs.CTRL$logFC) > 1.5 & HTAP.vs.CTRL$P.Value <= 0.05, ]
+top.gene.HTAP.vs.CTRL <- rownames(top.HTAP.vs.CTRL)
+View(top.HTAP.vs.CTRL)
+
+# Expressio heatmap by cluster
+matrice1 <- matrice[top.gene.HTAP.vs.CTRL,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+matrice1 <- t(apply(matrice1, 1, cal_z_score))
+pheatmap(matrice1,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP vs CTRL by cluster \n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+# By patient
+
+pat1 <- patient[top.gene.HTAP.vs.CTRL,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+pat1 <- t(apply(pat1, 1, cal_z_score))
+pheatmap(pat1,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP vs CTRL by patient \n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+
+EnhancedVolcano(top.HTAP.vs.CTRL,
+    lab = rownames(top.HTAP.vs.CTRL),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP vs CTRL",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-06, FCcutoff = 1.5)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-06,
+    FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+```
+
+
+## HTAP.BMP9.vs.CTRL.BMP9
+
+```{r}
+# Heatmap
+top.HTAP.BMP9.vs.CTRL.BMP9 <- HTAP.BMP9.vs.CTRL.BMP9[abs(HTAP.BMP9.vs.CTRL.BMP9$logFC) >= 1.5 & HTAP.BMP9.vs.CTRL.BMP9$P.Value <= 0.05, ]
+View(top.HTAP.BMP9.vs.CTRL.BMP9)
+top.gene.HTAP.BMP9.vs.CTRL.BMP9 <- rownames(top.HTAP.BMP9.vs.CTRL.BMP9)
+
+# By cluster
+matrice2 <- matrice[top.gene.HTAP.BMP9.vs.CTRL.BMP9,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+matrice2 <- t(apply(matrice2, 1, cal_z_score))
+pheatmap(matrice2,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP.BMP9.vs.CTRL.BMP9 by cluster \n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+# By patient
+pat2 <- patient[top.gene.HTAP.BMP9.vs.CTRL.BMP9,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+pat2 <- t(apply(pat2, 1, cal_z_score))
+pheatmap(pat2,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP.BMP9.vs.CTRL.BMP9 by patients \n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+
+
+
+
+
+VlnPlot(object = seurat.htap, features = c("RCAN1","HLX","DDX11",
+"ST3GAL6", "TXNDC16", "RNF182", "NEK10", "RAB17"), pt.size = 0, group.by = "louvain_k9") 
+
+
+
+
+EnhancedVolcano(HTAP.BMP9.vs.CTRL.BMP9,
+    lab = rownames(HTAP.BMP9.vs.CTRL.BMP9),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 vs CTRL.BMP9",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-06, FCcutoff = 1.5)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-06,
+    FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    #drawConnectors = TRUE,
+    #widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+
+
+
+
+
+
+
+# scater::plotHeatmap(sce.htap[, order(sce.htap$cluster_louvain_k10)], features = top.gene.HTAP.BMP9.vs.CTRL.BMP9, center = T, zlim = c(-3, 3), colour_columns_by = c("cluster_louvain_k10", "Patients"), show_colnames = F, cluster_cols = F, fontsize_row = 6, color = colorRampPalette(c("purple", "black", "yellow"))(90))
+
+```
+
+
+## HTAP.BMP9.vs.HTAP
+
+```{r}
+# Heatmap
+top.HTAP.BMP9.vs.HTAP <- HTAP.BMP9.vs.HTAP[HTAP.BMP9.vs.HTAP$adj.P.Val <= 0.05, ]
+top.gene.HTAP.BMP9.vs.HTAP <- rownames(top.HTAP.BMP9.vs.HTAP)
+
+matrice3 <- matrice[top.gene.HTAP.BMP9.vs.HTAP[1:50],]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+matrice3 <- t(apply(matrice3, 1, cal_z_score))
+
+p <- pheatmap(matrice3,  angle_col=45, fontsize = 7, cluster_cols = F, cluster_rows = T, main = "Top 50 genes in HTAP+BMP9 vs HTAP by cluster \n (FDR ≤ 0.05)")
+
+saveImageJPEG(p, "pheatmap.HTAP.BMP9.vs.HTAP.by.cluster.jpeg")
+
+
+# By patient
+pat3 <- patient[top.gene.HTAP.BMP9.vs.HTAP[1:50],]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+pat3 <- t(apply(pat3, 1, cal_z_score))
+p <- pheatmap(pat3,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP.BMP9 vs HTAP by patients \n (FDR ≤ 0.05)")
+
+saveImageJPEG(p, "pheatmap.HTAP.BMP9.vs.HTAP.by.patient.jpeg")
+
+
+
+
+# Volcanoplot
+EnhancedVolcano(HTAP.BMP9.vs.HTAP,
+    lab = rownames(HTAP.BMP9.vs.HTAP),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    HTAP.BMP9 vs HTAP",
+    subtitle = "(linear model by limma package, 
+    robust = true, FCcutoff = 1.5, pCutoff = 10e-06)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-06,
+    FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    #drawConnectors = TRUE,
+    #widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+```
+
+
+
+## CTRL.BMP9.vs.CTRL
+
+```{r}
+# Heatmap
+top.CTRL.BMP9.vs.CTRL <- CTRL.BMP9.vs.CTRL[CTRL.BMP9.vs.CTRL$adj.P.Val <= 0.05, ]
+top.gene.CTRL.BMP9.vs.CTRL <- rownames(top.CTRL.BMP9.vs.CTRL)
+
+matrice4 <- matrice[top.gene.CTRL.BMP9.vs.CTRL[1:50],]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+matrice4 <- t(apply(matrice4, 1, cal_z_score))
+p <- pheatmap(matrice4,  angle_col=45, fontsize = 7, cluster_cols = F, cluster_rows = T, main = "Top 50 genes in CTRL+BMP9 vs CTRL by cluster \n (FDR ≤ 0.05)")
+
+saveImageJPEG(p, "pheatmap.CTRL.BMP9.vs.CTRL.by.cluster.jpeg")
+
+# By patient
+pat4 <- patient[top.gene.CTRL.BMP9.vs.CTRL[1:50],]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+pat4 <- t(apply(pat4, 1, cal_z_score))
+p <- pheatmap(pat4,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in CTRL+BMP9 vs CTRL by patients \n (FDR ≤ 0.05)")
+
+saveImageJPEG(p, "pheatmap.CTRL.BMP9.vs.CTRL.by.patient.jpeg")
+
+# Volcanoplot
+EnhancedVolcano(CTRL.BMP9.vs.CTRL,
+    lab = rownames(CTRL.BMP9.vs.CTRL),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    CTRL.BMP9 vs CTRL",
+    subtitle = "(linear model by limma package, 
+    robust = true, FCcutoff = 1.5, pCutoff = 10e-06)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-06,
+    FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    #drawConnectors = TRUE,
+    #widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+
+
+
+
+```
+
+
+
+## HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL
+
+
+```{r}
+# Heatmap
+top.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL <- HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL[abs(HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL$logFC) >= 1.5 & HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL$P.Value <= 0.05, ]
+top.gene.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL <- rownames(top.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL)
+View(top.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL)
+matrice5 <- matrice[top.gene.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+matrice5 <- t(apply(matrice5, 1, cal_z_score))
+pheatmap(matrice5,  angle_col=45, fontsize = 7, cluster_cols = F, cluster_rows = T, main = "Top genes in (HTAP + BMP9 vs HTAP) vs (CTRL+BMP9 vs CTRL) by cluster \n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+saveImageJPEG(p, "pheatmap.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL.jpeg")
+
+# By patient
+pat5 <- patient[top.gene.HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+pat5 <- t(apply(pat5, 1, cal_z_score))
+pheatmap(pat5,  angle_col=45, fontsize = 8, cluster_cols = F, cluster_rows = T, main = "Top genes in HTAP.BMP9.vs.CTRL.BMP9 by patients by patient\n (LogFC = 1.5, Pvalue ≤ 0.05)")
+
+
+
+
+# Volcanoplot
+EnhancedVolcano(HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL,
+    lab = rownames(HTAP.BMP9.vs.HTAP_vs_CTRL.BMP9.vs.CTRL),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression \n
+    (HTAP + BMP9 vs HTAP) vs (CTRL+BMP9 vs CTRL)",
+    subtitle = "(linear model by limma package, 
+    robust = true,  pCutoff = 10e-06, FCcutoff = 1.5)" ,
+    #selectLab = top.c2.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-06,
+    FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.5,
+    #labCol = 'black',
+    labFace = 'bold',
+    #boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    #drawConnectors = TRUE,
+    #widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_linedraw()
+```
+
+
+
+
+# Endothelial markers
+
+```{r}
+
+top.htap.marker <- lapply(names(htap.markers), function(x) {
+    temp <- htap.markers[[x]][,1:2]
+    temp$gene <- rownames(htap.markers[[x]])
+    temp$cluster <- x
+    return(temp)
+})
+top.htap.marker <- as_tibble(do.call(rbind, top.htap.marker))
+top <- top.htap.marker$gene
+
+EC.markers.in.htap <-  top.htap.marker[EC.markers,]
+
+# Find common markers
+EC.in.htap.markers <- intersect(htap.markers$gene, EC.markers)
+endo.clust <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("louvain_k9")])
+group <- factor(endo.clust$louvain_k9)
+endo.clust <- DGEList(assay(endo.clust), group = group)
+endo.clust <- endo.clust$counts
+colnames(endo.clust) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9")
+endo.clust <- endo.clust[EC.in.htap.markers,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+endo.clust <- t(apply(endo.clust, 1, cal_z_score))
+e <- pheatmap(endo.clust, angle_col=45, fontsize = 5.5, cluster_cols = T, cluster_rows = T, main = "Expression heatmap \n of endothelial gene makerkers by cluster")
+
+
+saveImageJPEG(e, "Heatmap.EC.markers.jpeg")
+
+
+
+k <- scater::plotHeatmap(sce.htap[, order(sce.htap$louvain_k9)],
+                    features = EC.in.htap.markers,
+                    center = T,
+                    zlim = c(-3, 3),
+                    scale.row = scale,
+                    colour_columns_by = c("louvain_k9", "Patients"),
+                    order_columns_by = c("louvain_k9"),
+                    show_colnames = F,
+                    show_rownames = T,
+                    cluster_cols = F,
+                    cluster_row = F,
+                    fontsize_row = 6,
+                    color = colorRampPalette(c("purple", "black", "yellow"))(90))
+saveImageJPEG(k, "plotHeatmap.EC.jpeg")
+```
+
+
+
+```{r}
+# Heatmap by patients
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Patients")])
+group <- factor(agg$Patients)
+dge<- DGEList(assay(agg), group = group)
+dge <- dge$counts
+dge <- dge[EC.in.htap.markers,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+dge <- t(apply(dge, 1, cal_z_score))
+
+
+# Plot the heatmap
+k <- pheatmap(dge, angle_col=45, fontsize = 5, cluster_cols = F, cluster_rows = T, main = "Expression heatmap of endothelial markers by patients")
+saveImageJPEG(k, "heatmap.EC.markers.by.patients.jpeg")
+```
+
+
+```{r}
+# Heatmap by patients
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Conditions")])
+group <- factor(agg$Conditions)
+dge<- DGEList(assay(agg), group = group)
+dge <- dge$counts
+dge <- dge[EC.in.htap.markers,]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+dge <- t(apply(dge, 1, cal_z_score))
+
+
+# Plot the heatmap
+k <- pheatmap(dge, angle_col=45, fontsize = 5, cluster_cols = T, cluster_rows = T, main = "Expression heatmap of endothelial markers by condition")
+saveImageJPEG(k, "heatmap.EC.markers.by.condition.jpeg")
+```
+
+
+
+# Recepteurs des voie BMP-TGF
+
+```{r}
+# Recepteurs des voies BMPR2
+
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("Conditions")])
+group <- factor(agg$Conditions)
+dge <- DGEList(assay(agg), group = group)
+data <- dge$counts
+data <- data[c("BMPR2",  "TGFBR2" ,"ACVRL1", "ACVR1" , "BMPR1A", "ACVR1B", "TGFBR1", "BMPR1B", "ACVR1C"),]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+data <- t(apply(data, 1, cal_z_score))
+pheatmap(data,  angle_col=45, fontsize = 7, cluster_cols = F, cluster_rows = T, main = "BMP/TGF pathway receptors by condition")
+
+saveImageJPEG(p, "pheatmap.geneBMP.jpeg")
+
+
+
+
+# Featureplot
+FeaturePlot(seurat.htap, reduction = "UMAP", label.size = 2, features = recepteur, min.cutoff = "q1")
+
+# Dotplot
+Seurat::DotPlot(seurat.htap, features = recepteur, group.by = "louvain_k9", cols = c("blue", "red")) + RotatedAxis() + ggplot2::labs(title="Differential gene expression \n Receptors of BMP/TGF pathways", x = "Markers", y ="Clusters")
+
+Seurat::DotPlot(seurat.htap, features = recepteur, group.by = "Patients", cols = c("blue", "red")) + RotatedAxis() + ggplot2::labs(title="DGE - Receptors of BMP/TGF pathways", x = "Markers", y ="Patients")
+```
+
+
+# Cluster relabeling
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=6, fig.width=8}
+
+#new.cluster.ids <- EC.in.htap.markers
+#cell.ids <- c("Cap EC", "Vein EC",	"Art EC", "CapA EC", "lymphatic")
+new.cluster.ids <- c("FCN3", "PRSS23", "SEMA3G", "BTNL9", "CCL21", "MMRN1", "SPTBN1", "CLEC14A", "SOCS3", "ESAM")
+names(x = new.cluster.ids) <- levels(x = seurat.htap)
+seurat.htap <- SetIdent(seurat.htap, value = "louvain_k9")
+aggr <- RenameIdents(object = seurat.htap, new.cluster.ids)
+DimPlot(object = aggr, reduction = "TSNE" , label = TRUE, label.size = 8, pt.size = 3)
+my_levels <- c("FCN3", "PRSS23", "SEMA3G", "BTNL9", "CCL21", "MMRN1", "SPTBN1", "CLEC14A", "SOCS3", "ESAM")
+
+aggr@active.ident <- factor(x = aggr@active.ident, levels = my_levels)
+DimPlot(object = aggr, reduction = "TSNE" , label = TRUE, label.size = 8, pt.size = 3)
+
+aggr <- SetIdent(aggr, value = "louvain_k9")
+# Grouping some clusters
+aggr[['cluster.ids']] <- ""
+aggr[['cluster.ids']][which(aggr@active.ident == 1),] <- "CapA EC"
+aggr[['cluster.ids']][which(aggr@active.ident == 2),] <- "lymphatic"
+aggr[['cluster.ids']][which(aggr@active.ident == 3),] <- "Cap EC"
+aggr[['cluster.ids']][which(aggr@active.ident == 4),] <- "Vein EC"	
+aggr[['cluster.ids']][which(aggr@active.ident == 5),] <- "Art EC"
+aggr[['cluster.ids']][which(aggr@active.ident == 6),] <- "Art EC"
+aggr[['cluster.ids']][which(aggr@active.ident == 7),] <- "lymphatic"
+aggr[['cluster.ids']][which(aggr@active.ident == 8),] <- "Vein EC"	
+aggr[['cluster.ids']][which(aggr@active.ident == 9),] <- "CapA EC"	
+aggr <- SetIdent(aggr, value = "cluster.ids")
+
+DimPlot(object = aggr, reduction = "TSNE" , label = TRUE, label.size = 10, pt.size = 3)
+
+
+
+
+
+
+# 
+# my_levels <- c("ALDH1A1","FABP4","IGFBP5","KRT7","BIRC5-MKI67","IFI27-1","IFI27-2","CCL20","BIRC5","MITO-high")
+# aggr@active.ident <- factor(x = aggr@active.ident, levels = my_levels)
+
+saveRDS(aggr, "./output/htap.labels.rds")
+
+```
+
+# Global table results
+
+```{r}
+topTable1$genes <- rownames(topTable1)
+topTable2$genes <- rownames(topTable2)
+topTable3$genes <- rownames(topTable3)
+topTable4$genes <- rownames(topTable4)
+topTable5$genes <- rownames(topTable5)
+topTable6$genes <- rownames(topTable6)
+topTable7$genes <- rownames(topTable7)
+topTable8$genes <- rownames(topTable8)
+topTable9$genes <- rownames(topTable9)
+
+topTable <- rbind(topTable1, topTable2, topTable3, topTable4, topTable5, topTable6, topTable7, topTable8, topTable9)
+View(topTable)
+write.table(topTable, file = "out/htap.results.by.cluster.tsv", row.names=FALSE, col.names = TRUE, sep="\t", quote = FALSE)
+
+
+maplot <- topTable[, c("AveExpr", "logFC", "adj.P.Val")]
+colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+View(maplot)
+#library("ggpubr")
+ggpubr::ggmaplot(maplot, 
+                 main = "MA plot of the top genes (FDR 5%)",
+                 fdr = 0.05, 
+                 #fc = 1.2,
+                 size = 1.5,
+                 palette = c("#B31B21", "#1465AC", "darkgray"),
+                 genenames = as.vector(rownames(maplot)),
+                 legend = "right", 
+                 top = 5,
+                 alpha = 1,
+                 select.top.method = c("fc"),
+                 font.label = c("bold", 6), 
+                 label.rectangle = TRUE,
+                 font.legend = "bold",
+                 #font.main = "bold",
+                 ggtheme = ggplot2::theme_classic() ) 
+
+
+
+EnhancedVolcano(topTable,
+    lab = rownames(topTable),
+    x = 'logFC',
+    y = 'P.Value',
+     #xlim = c(-8, 8),
+    ylim = c(0, -log10(10e-12)),
+    title = "Differential Gene Expression in HTAP dataset",
+    subtitle = "(linear model by limma package, 
+    robust = true, pCutoff = 10e-05)" ,
+    #selectLab = top.c3.genes,
+    #xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-05,
+    #FCcutoff = 1.5,
+    pointSize = 1.0,
+     labSize = 2.0,
+    #labCol = 'black',
+    labFace = 'bold',
+    boxedLabels = TRUE,
+    colAlpha = 1,
+    legendPosition = 'right',
+    legendLabSize = 8,
+   legendIconSize = 2.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.2,
+    #colConnectors = 'black'
+   ) + ggplot2::theme_classic()
+
+
+
+topTableFDR <- topTable[topTable$adj.P.Val <= 0.05,]
+View(topTableFDR)
+topTableFDR.genes <- unique(topTableFDR$genes)
+
+Seurat::DotPlot(seurat.htap, features = topTableFDR.genes, group.by = "Patients", cols = c("blue", "red")) + RotatedAxis() + ggplot2::labs(x = "Genes", y ="Patients")
+
+
+Seurat::DotPlot(seurat.htap, features = topTableFDR.genes, group.by = "Conditions", cols = c("blue", "red")) + RotatedAxis() + ggplot2::labs( x = "Genes", y ="Conditions")
+
+Seurat::DotPlot(seurat.htap, features = topTableFDR.genes, group.by = "louvain_k9", cols = c("blue", "red")) + RotatedAxis() + ggplot2::labs( x = "Genes", y ="Clusters")
+
+
+
+  FeaturePlot(seurat.htap,reduction = "UMAP",  features = topTableFDR.genes)
+
+VlnPlot(object = seurat.htap, features = topTableFDR.genes, pt.size = 0, group.by = "louvain_k9")
+
+VlnPlot(object = seurat.c2, features = "TSPAN15", pt.size = 0.01, group.by = "louvain_k9") + ggplot2::labs(title="TSPAN15", x = "Clusters")
+
+
+
+VlnPlot(object = seurat.htap, features = c("ST3GAL6","HTN1","CELSR1",
+"RAMP3"), pt.size = 0.01, group.by = "louvain_k9") 
+
+
+
+
+dt.clust <- df.clust[unique(topTableFDR$genes),]
+#subset1 <- dat1[top.genes.htap.vs.ctrl,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+dt.clust <- t(apply(dt.clust, 1, cal_z_score))
+
+pheatmap(dt.clust,  angle_col=45, fontsize = 8, cluster_cols = T, cluster_rows = T, main = "Top significant markers")
+
+```
+
+
+# Gènes modulés par BMP
+
+```{r}
+geneBMP <- c("SMAD1","MAFF","CAVIN2","ADM","TSC22D4","PDP1","RGS3","N4BP3","ARL4C","ITPKB","TRIB3","SH2D3C","PHLDA1","MIR222HG","FRMD6","HIC1","PLEKHO2","TNK2","BCL6B","ETS2","EPHA2","SGK1","HEY1","EFNB2","ENC1","ATP13A3","CMTM8","CRACR2B","DNAJC1","SAT1","DRAXIN","ATOH8","BCOR","CASC10","BAMBI","MAP3K5","SLC1A5","MOAP1","EML1","SMARCD3","MMD","ABHD17C","GATA2","SLC9B2","ACVR1","GPR137C","ZNRF2","ABHD12","SERTAD1","PHLPP1","UBTF","SS18L1","VSIG10","TCF7","BMPR2","BAG3","NR3C1","CEBPG","IER5L","FURIN","ENAH","TMEM181","LRP12","TMC7","GNB4","SRRM3","MDFI","RAB30","UBR7","SLC16A3","REST","FOSL2","SLC38A2","STXBP5","SMAD6","TAPT1","FAM8A1","SNAI1","CD58","ZNF654","SMIM13", "FZD1", "SMAD7", "TBC1D30", "PTGS2", "OSGIN2", "TRIM8", "LMO4", "HES6", "ASS1", "CHD7", "TMEM64", "LHFPL2", "F12", "EZH2", "PDE10A", "FES", "NOG", "CXXC5", "PRICKLE2", "SKIDA1", "RAB31", "ID2", "ZBTB2")
+
+k <- scater::plotHeatmap(sce.htap[, order(sce.htap$louvain_k9)],
+                    features = geneBMP,
+                    center = T,
+                    zlim = c(-3, 3),
+                    scale.row = scale,
+                    colour_columns_by = c("louvain_k9", "Patients"),
+                    order_columns_by = c("louvain_k9"),
+                    show_colnames = F,
+                    show_rownames = T,
+                    cluster_cols = F,
+                    cluster_row = T,
+                    fontsize_row = 6,
+                    color = colorRampPalette(c("purple", "black", "yellow"))(90))
+saveImageJPEG(k, "plotHeatmap.geneBMP.jpeg")
+
+
+
+agg <- aggregateAcrossCells(sce.htap, ids = colData(sce.htap)[,c("louvain_k9")])
+dge <- DGEList(assay(agg))
+geneBMP.data <- dge$counts
+colnames(geneBMP.data) <- c("cluster1", "cluster2", "cluster3", "cluster4", "cluster5", "cluster6", "cluster7", "cluster8", "cluster9")
+# Expressio heatmap by cluster
+geneBMP.data <- geneBMP.data[geneBMP,]
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+geneBMP.data <- t(apply(geneBMP.data, 1, cal_z_score))
+p <- pheatmap(geneBMP.data,  angle_col=45, fontsize = 7, cluster_cols = T, cluster_rows = T, main = "Top genes BMP (logFC>1.5, AveExpr>2, Pvalue < 1e-6 in CTRL and HTAP)")
+
+saveImageJPEG(p, "pheatmap.geneBMP.jpeg")
+
+
+```
+
+
+# Session Info
+
+```{r sessinf}
+sessionInfo()
+```
+
+

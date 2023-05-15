@@ -1,0 +1,695 @@
+---
+title: "10X HTAP BMP9 - Analysis"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    theme: united
+    df_print: kable
+  html_notebook:
+    code_folding: none
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+```{r setup, include=TRUE, warning=FALSE}
+rm(list = ls())
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", "markers", sep = "/")
+
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+
+## Memory 
+options(future.globals.maxSize = 80000 * 1024^2)
+```
+
+# Setting seed and loading R packages
+
+```{r seed_packages}
+  library(Seurat)
+  library(dplyr)
+  library(ggplot2)
+  library(ggrepel)
+  library(DOSE)
+  library(clusterProfiler)
+  library(org.Hs.eg.db)
+set.seed(the.seed)
+```
+
+
+# Load data
+
+```{r fig.width=16, fig.height=6}
+htap <- readRDS(paste(data.dir, "clean.rds", sep = "/"))
+invisible(gc())
+p1 <- DimPlot(htap, group.by = "ALK1", label.color = "white") + DarkTheme() 
+p2 <- DimPlot(htap, group.by = "condition") + DarkTheme()
+p3 <- DimPlot(htap, group.by = "sample") + DarkTheme()
+p1+p2+p3
+```
+
+# DE ALK1
+
+```{r}
+res.dir <- paste(work.dir, "outs", "markers", "DE_ALK1", sep = "/")
+Seurat::Idents(htap) <- "ALK1"
+test.use = "wilcox"
+DefaultAssay(htap) <- "RNA"
+htap <- NormalizeData(htap)
+Idents(htap) <- "ALK1"
+clusters <- sort(as.vector(unique(htap@active.ident)))
+clusters
+nb <- length(clusters)
+
+## Find all markers per cluster
+for(i in 1:nb){
+  print(clusters[i])
+  Idents(htap) <- "ALK1"
+  de_genes <- FindMarkers(htap, ident.1 = clusters[i], ident.2 = NULL, only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+  de_genes$cluster <- replicate(nrow(de_genes),clusters[i])
+  de_genes$gene <- rownames(de_genes)
+  de_genes$test.use <- replicate(nrow(de_genes),paste0(test.use))
+  write.table(de_genes,file=paste(res.dir, "/" ,clusters[i], "_DE_", test.use,".txt",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+}
+
+## Save DE results in a joined table
+joined_res <- list.files(paste(res.dir), pattern="*.txt", full.names=TRUE)
+joined_res <- plyr::ldply(joined_res, read.delim)
+write.table(joined_res,file=paste(res.dir, "/", "DE_ALK1_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
+
+```
+
+### Dotplot
+```{r}
+top = joined_res %>% dplyr::group_by(cluster) %>% do(head(., n=10))
+DotPlot(object = htap, assay = "RNA", features=unique(top$gene), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + coord_flip()
+
+DotPlot(object = htap, assay = "RNA", features=rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],50)), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + coord_flip()
+```
+
+
+```{r warning=FALSE, fig.width=3, fig.height=8}
+de_genes <- read.delim(paste(res.dir,"DE_ALK1_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[de_genes$avg_log2FC > 0,]
+top = de_genes %>% dplyr::group_by(cluster) %>% do(head(., n=10))
+
+#kable(head(neg_markers,10))
+markers_50 <- head(de_genes,50)
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9")
+)
+
+DotPlot(object = htap, assay = "RNA", features=unique(top$gene), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+```
+
+# GSE ALK1 High
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+markers <- read.delim(paste(output.dir, "DE_ALK1", "DE_ALK1_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers,cluster == "ALK1 High")
+
+original_gene_list <- markers$avg_log2FC
+names(original_gene_list) <- markers$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.High.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 High", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO biological process - ALK1 High", showCategory = 50) + ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[30]])
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[33]])
+
+```
+
+
+
+# GSE ALK1 Low
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+markers <- read.delim(paste(output.dir, "DE_ALK1", "DE_ALK1_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers,cluster == "ALK1 Low")
+
+original_gene_list <- markers$avg_log2FC
+names(original_gene_list) <- markers$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.Low.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 Low", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.Low.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO biological process - ALK1 Low", showCategory = 50) + ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[30]])
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[33]])
+
+```
+
+
+
+# ALK1 High vs ALK1 High+BMP9
+
+## DE
+```{r}
+Idents(htap) <- "ALK1"
+de_genes <- FindMarkers(htap, ident.1 = "ALK1 High", ident.2 = "ALK1 High+BMP9", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.High_vs_ALK1.High.BMP9", nrow(de_genes))
+write.table(de_genes,file=paste(output.dir, "/DE_ALK1/", "ALK1.High_vs_ALK1.High.BMP9_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+## Volcano plot
+
+```{r }
+
+# de_genes$avg_log2FC <- round(de_genes$avg_log2FC, digits = 2)
+# de_genes$p_val_adj <- formatC(de_genes$p_val_adj, format = "e", digits = 2)
+# de_genes$p_val <- formatC(de_genes$p_val, format = "e", digits = 2)
+
+# Volcano plot
+de_genes$diffexpressed <- "No"
+de_genes$diffexpressed[de_genes$avg_log2FC > 0.5 & de_genes$p_val_adj < 0.05] <- "Up"
+de_genes$diffexpressed[de_genes$avg_log2FC < -0.5 & de_genes$p_val_adj < 0.05] <- "Down"
+de_genes$delabel <- NA
+de_genes$delabel[de_genes$diffexpressed != "No"] <- de_genes$gene[de_genes$diffexpressed != "No"]
+
+# Volcano plot
+p1 <- ggplot(data=de_genes, 
+             aes(x=avg_log2FC, 
+                 y=-log10(p_val_adj), 
+                 col=diffexpressed, 
+                 label=delabel)) +
+  geom_text_repel(
+    size = 2.5,
+    point.padding = 0, # additional padding around each point
+    min.segment.length = 0, # draw all line segments
+    max.time = 1, max.iter = 1e5, # stop after 1 second, or after 100,000 iterations
+    box.padding = 0.1 # additional padding around each text label
+  ) +
+  geom_point(size = 2.5, 
+             alpha = 0.4) + # transparent point
+  xlim(-3,3) +
+   ylim(c(0, 350)) +
+  theme_light()+
+  scale_color_manual(values=c("#0570b0", "gray60", "#d7301f")) +
+  #scale_color_manual(values=c("firebrick", "gray60", "navy")) +
+  geom_vline(xintercept=c(-0.5, 0.5), linetype = "dashed", col="grey60") +
+  geom_hline(yintercept=-log10(0.05),  linetype = "dashed", col="grey60")+
+  #labs(title = paste0(celltype), x = "", y = "")+
+  theme(legend.position = "none",
+        legend.key.size = unit(0.3, "cm")) 
+print(p1)
+```
+
+
+## Dotplot
+
+```{r warning=FALSE, fig.width=2.2, fig.height=8}
+de_genes <- read.delim(paste(output.dir, "DE_ALK1","ALK1.High_vs_ALK1.High.BMP9_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+#kable(head(neg_markers,10))
+markers_50 <- head(de_genes,50)
+
+labels <- c(expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("High")*"+BMP9")
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("low")*"+"*"BMP9")
+)
+
+DotPlot(object = htap, assay = "RNA", features = rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],50)), idents = c("ALK1 High", "ALK1 High+BMP9"), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+```
+
+
+## GSE
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+
+de_genes <- read.delim(paste(output.dir, "DE_ALK1", "ALK1.High_vs_ALK1.High.BMP9_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+#de_genes <- de_genes[de_genes$avg_log2FC > 0,]
+original_gene_list <- de_genes$avg_log2FC
+names(original_gene_list) <- de_genes$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.High.vs.ALK1.High.BMP9.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 High vs ALK1 High+BMP9", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.High_vs_ALK1.High.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO BP - ALK1 High vs ALK1 HIgh+BMP9", showCategory = 50) +
+    ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[33]])
+
+```
+
+
+# ALK1 High+BMP9 vs ALK1 High
+## DE
+
+```{r}
+Idents(htap) <- "ALK1"
+de_genes <- FindMarkers(htap, ident.1 = "ALK1 High+BMP9", ident.2 = "ALK1 High", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.High.BMP9_vs_ALK1.High", nrow(de_genes))
+write.table(de_genes,file=paste(output.dir, "/DE_ALK1/", "ALK1.High.BMP9_vs_ALK1.High_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+
+```{r warning=FALSE, fig.width=2.2, fig.height=8}
+markers_50 <- head(de_genes,50)
+labels <- c(expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("High")*"+BMP9")
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("low")*"+"*"BMP9")
+)
+
+DotPlot(object = htap, assay = "RNA", features=rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],50)), idents = c("ALK1 High+BMP9", "ALK1 High"), dot.scale = 4) +
+    coord_flip() +
+theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp",order = 1), 
+         size = guide_legend(title = "%cell.exp",order = 2)) 
+```
+
+## GSE
+
+```{r}
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+# GO
+original_gene_list <- de_genes$avg_log2FC
+names(original_gene_list) <- de_genes$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.High.bmp9.vs.ALK1.High.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 High+BMP9 vs ALK1 High", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.High.BMP9_vs_ALK1.High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO BP - ALK1 High+BMP9 vs ALK1 High", showCategory = 50) +
+    ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+
+```
+
+# ALK1 Low vs ALK1 Low+BMP9
+
+## DE
+
+```{r}
+Idents(htap) <- "ALK1"
+de_genes <- FindMarkers(htap, ident.1 = "ALK1 Low", ident.2 = "ALK1 Low+BMP9", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.Low_vs_ALK1.Low.BMP9", nrow(de_genes))
+write.table(de_genes,file=paste(output.dir, "/DE_ALK1/", "ALK1.Low_vs_ALK1.Low.BMP9_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+## Dotplot
+
+```{r warning=FALSE, fig.width=2.2, fig.height=8}
+de_genes <- read.delim(paste(output.dir, "DE_ALK1","ALK1.Low_vs_ALK1.Low.BMP9_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+#kable(head(neg_markers,10))
+markers_50 <- head(de_genes,50)
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low")*"+BMP9")
+)
+
+DotPlot(object = htap, assay = "RNA", features = rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],50)), idents = c("ALK1 Low", "ALK1 Low+BMP9"), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+```
+
+
+## GSE
+
+```{r}
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+# GO
+original_gene_list <- de_genes$avg_log2FC
+names(original_gene_list) <- de_genes$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.Low.vs.ALK1.Low.BMP9.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 Low vs ALK1 Low+BMP9", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.Low_vs_ALK1.Low.BMP9.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO BP - ALK1 Low vs ALK1 Low+BMP9", showCategory = 50) +
+    ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+
+```
+
+
+
+# ALK1 Low vs ALK1 Low+BMP9
+
+## DE
+
+```{r}
+Idents(htap) <- "ALK1"
+de_genes <- FindMarkers(htap, ident.1 = "ALK1 Low+BMP9", ident.2 = "ALK1 Low", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.Low.BMP9_vs_ALK1.Low", nrow(de_genes))
+write.table(de_genes,file=paste(output.dir, "/DE_ALK1/", "ALK1.Low.BMP9_vs_ALK1.Low_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+## Dotplot
+
+```{r warning=FALSE, fig.width=2.2, fig.height=8}
+de_genes <- read.delim(paste(output.dir, "DE_ALK1","ALK1.Low.BMP9_vs_ALK1.Low_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+#kable(head(neg_markers,10))
+markers_50 <- head(de_genes,50)
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low")*"+BMP9")
+)
+
+DotPlot(object = htap, assay = "RNA", features = rownames(head(markers_50[order(markers_50$avg_log2FC, decreasing = T),],50)), idents = c("ALK1 Low", "ALK1 Low+BMP9"), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+```
+
+
+## GSE
+
+```{r}
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+# GO
+original_gene_list <- de_genes$avg_log2FC
+names(original_gene_list) <- de_genes$gene
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=gene_list, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "gse.ALK1.Low.BMP9.vs.ALK1.Low.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 Low+BMP9 vs ALK1 Low", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(res.dir,"Res_GSE_ALK1.Low.BMP9_vs_ALK1.Low.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+```
+
+## Dotplot
+
+```{r fig.height=12, fig.width=8}
+require(DOSE)
+dotplot(gse, title = "GO BP - ALK1 Low+BMP9 vs ALK1 Low", showCategory = 50) +
+    ggplot2::theme(
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  ggplot2::geom_point(shape = 21, colour="black", stroke=0.5) +
+  #viridis::scale_colour_viridis(option="magma") +
+  #scale_colour_gradient2(low = "#0570b0", mid = "white", high = "#d7301f") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))
+  
+```
+
+## Score and preranked list of GSEA result
+
+```{r}
+enrichplot::gseaplot2(gse, geneSetID = 1, title = gse@result$Description[[1]])
+
+```
+
+
+
+
+# Save GSE results in a joined table
+
+```{r}
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+joined_res <- list.files(paste(res.dir), pattern="*.tsv", full.names=TRUE)
+joined_res <- plyr::ldply(joined_res, read.delim)
+write.table(joined_res,file=paste(res.dir,"gse_joined_res.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+unique(joined_res$analyse)
+dim(joined_res)
+```
+

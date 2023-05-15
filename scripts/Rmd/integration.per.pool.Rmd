@@ -1,0 +1,368 @@
+---
+title: "10X PAH BMP9 - Integration"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document:
+    theme: united
+    df_print: kable
+  html_notebook:
+    code_folding: none
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+date: 'Compiled: `r Sys.Date()`'
+---
+
+```{r setup, include=TRUE}
+# Chunck options
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, cache = FALSE, cache.lazy = FALSE, tidy = TRUE, message = FALSE, warning = FALSE)
+# Define directories
+work.dir <- "/data/data_mbouamboua/10x.htap/bmp9"
+data.dir <- paste(work.dir, "outs", "rds", sep = "/")
+output.dir <- paste(work.dir, "outs", sep = "/")
+# Setting parameters
+the.seed <- 1337L # Computational Parameters
+## Memory 
+options(future.globals.maxSize = 80000 * 1024^2)
+# Setting seed and loading R packages
+suppressPackageStartupMessages(library(Seurat))
+set.seed(the.seed)
+```
+
+# Integration A1+A2
+
+```{r}
+# A1 <- readRDS(paste(data.dir,  "A1.rds", sep = "/"))
+# A2 <- readRDS(paste(data.dir,  "A2.rds", sep = "/"))
+# 
+# sample.list <- c(A1, A2)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, A1, A2)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "A1.A2.rds", sep = "/"))
+# invisible(gc())
+```
+
+
+# Integration A3+A4
+
+```{r}
+# A3 <- readRDS(paste(data.dir,  "A3.rds", sep = "/"))
+# A4 <- readRDS(paste(data.dir,  "A4.rds", sep = "/"))
+# 
+# sample.list <- c(A3, A4)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, A3, A4)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "A3.A4.rds", sep = "/"))
+# invisible(gc())
+```
+
+
+# Integration B1+B2
+
+```{r}
+# B1 <- readRDS(paste(data.dir,  "B1.rds", sep = "/"))
+# B2 <- readRDS(paste(data.dir,  "B2.rds", sep = "/"))
+# 
+# sample.list <- c(B1, B2)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, B1, B2)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "B1.B2.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration B3+B4
+```{r}
+# B3 <- readRDS(paste(data.dir,  "B3.rds", sep = "/"))
+# B4 <- readRDS(paste(data.dir,  "B4.rds", sep = "/"))
+# 
+# sample.list <- c(B3, B4)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, B3, B4)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "B3.B4.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration C1+C2
+
+```{r}
+# C1 <- readRDS(paste(data.dir,  "C1.rds", sep = "/"))
+# C2 <- readRDS(paste(data.dir,  "C2.rds", sep = "/"))
+# 
+# sample.list <- c(C1, C2)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, C1, C2)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "C1.C2.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration C3+C4
+
+```{r}
+# C3 <- readRDS(paste(data.dir,  "C3.rds", sep = "/"))
+# C4 <- readRDS(paste(data.dir,  "C4.rds", sep = "/"))
+# 
+# sample.list <- c(C3, C4)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, C3, C4)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "C3.C4.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration D1+D2
+
+```{r}
+# D1 <- readRDS(paste(data.dir,  "D1.rds", sep = "/"))
+# D2 <- readRDS(paste(data.dir,  "D2.rds", sep = "/"))
+# 
+# sample.list <- c(D1, D2)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, D1, D2)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "D1.D2.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration D3+D4
+
+```{r}
+# D3 <- readRDS(paste(data.dir,  "D3.rds", sep = "/"))
+# D4 <- readRDS(paste(data.dir,  "D4.rds", sep = "/"))
+# 
+# sample.list <- c(D3, D4)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, D3, D4)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "D3.D4.rds", sep = "/"))
+# invisible(gc())
+```
+
+# Integration E1+E2
+
+```{r}
+# E1 <- readRDS(paste(data.dir,  "E1.rds", sep = "/"))
+# E2 <- readRDS(paste(data.dir,  "E2.rds", sep = "/"))
+# 
+# sample.list <- c(E1, E2)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, E1, E2)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "E1.E2.rds", sep = "/"))
+# invisible(gc())
+```
+
+Integration E3+E4
+```{r}
+# E3 <- readRDS(paste(data.dir,  "E3.rds", sep = "/"))
+# E4 <- readRDS(paste(data.dir,  "E4.rds", sep = "/"))
+# 
+# sample.list <- c(E3, E4)
+# features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+# sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+# sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+# anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+# rm(sample.list, E3, E4)
+# invisible(gc())
+# integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+# integrated <- RunPCA(integrated, verbose = FALSE)
+# integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+# rm(anchors)
+# invisible(gc())
+# integrated@misc$params$QC$seed <- the.seed
+# integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+# saveRDS(integrated, paste(data.dir, "E3.E4.rds", sep = "/"))
+# invisible(gc())
+```
+
+
+# Integration PAH
+
+```{r}
+A3.A4 <- readRDS(paste(data.dir,  "A3.A4.rds", sep = "/"))
+B3.B4 <- readRDS(paste(data.dir,  "B3.B4.rds", sep = "/"))
+C3.C4 <- readRDS(paste(data.dir,  "C3.C4.rds", sep = "/"))
+D3.D4 <- readRDS(paste(data.dir,  "D3.D4.rds", sep = "/"))
+E3.E4 <- readRDS(paste(data.dir,  "E3.E4.rds", sep = "/"))
+invisible(gc())
+sample.list <- c(A3.A4, B3.B4, C3.C4, D3.D4,  E3.E4)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, A3.A4, B3.B4, C3.C4, D3.D4,  E3.E4)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.PAH.rds", sep = "/"))
+invisible(gc())
+```
+
+
+
+
+# Integration CTRL
+
+```{r}
+A1.A2 <- readRDS(paste(data.dir,  "A1.A2.rds", sep = "/"))
+B1.B2 <- readRDS(paste(data.dir,  "B1.B2.rds", sep = "/"))
+C1.C2 <- readRDS(paste(data.dir,  "C1.C2.rds", sep = "/"))
+D1.D2 <- readRDS(paste(data.dir,  "D1.D2.rds", sep = "/"))
+E1.E2 <- readRDS(paste(data.dir,  "E1.E2.rds", sep = "/"))
+invisible(gc())
+sample.list <- c(A1.A2, B1.B2, C1.C2, D1.D2, E1.E2)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, A1.A2, B1.B2, C1.C2, D1.D2, E1.E2)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.CTRL.rds", sep = "/"))
+invisible(gc())
+```
+
+# Integration Pool PAH + Pool CTRL
+
+```{r}
+pool.PAH <- readRDS(paste(data.dir,  "pool.PAH.rds", sep = "/"))
+DefaultAssay(pool.PAH) <- "RNA"
+pool.CTRL <- readRDS(paste(data.dir,  "pool.CTRL.rds", sep = "/"))
+DefaultAssay(pool.CTRL) <- "RNA"
+invisible(gc())
+sample.list <- c(pool.PAH, pool.CTRL)
+features <- SelectIntegrationFeatures(object.list = sample.list, nfeatures = 3000)
+#sample.list <- PrepSCTIntegration(object.list = sample.list, anchor.features = features)
+sample.list <- lapply(X = sample.list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = sample.list, normalization.method = "SCT", anchor.features = features, dims = 1:30, reduction = "rpca",  verbose = FALSE)
+rm(sample.list, pool.PAH, pool.CTRL)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", dims = 1:30, verbose = FALSE)
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, reduction = "pca", dims = 1:30)
+rm(anchors)
+invisible(gc())
+DimPlot(object = integrated, group.by = "seurat_clusters", label=F)  + DarkTheme()
+integrated@misc$params$QC$seed <- the.seed
+integrated@misc$params$QC$Rsession <- utils::capture.output(devtools::session_info())
+saveRDS(integrated, paste(data.dir, "pool.integrated.rds", sep = "/"))
+invisible(gc())
+```
+
+# Session Info
+
+```{r Rsession}
+# Print R session info
+utils::capture.output(devtools::session_info())
+```

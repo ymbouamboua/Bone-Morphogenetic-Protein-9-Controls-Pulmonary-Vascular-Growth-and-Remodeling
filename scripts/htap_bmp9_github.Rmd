@@ -1,0 +1,1114 @@
+---
+title: "Bone Morphogenetic Protein-9 Controls Pulmonary Vascular Growth and Remodeling"
+author: "Nihel Berrebeh et al."
+date: 'Compiled: `r Sys.Date()`'
+output:
+  rmdformats::readthedown:
+    self-contained: yes
+    highlight: haddock
+    css: styles.css
+    theme: flatly
+    number_sections: yes
+    thumbnails: no
+  html_notebook:
+    theme: cerulean 
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+---
+
+
+# Setting parameters
+
+```{r setup, include=TRUE, warning=FALSE}
+
+invisible(gc())
+options(future.globals.maxSize = 80000 * 1024^2)
+workdir <- "/data/data_mbouamboua/projects/10x_htap_bmp9"
+outdir <-  paste(workdir, "output", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+set.seed(1337L)
+
+```
+
+# Preprocessing
+## library A
+### Qualty Control, hashing demultiplexing
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=16}
+
+Lib <- "A"
+patient <-  c("C686518","C686518","H230","H230")
+tags <-  c("C686518","C686518.BMP9","H230","H230.BMP9")
+
+data <- Read10X(paste0(workdir,"/data/Lib_",Lib))
+hto <- Read10X(paste0(workdir, "/data/hto/Lib_",Lib,"_umi_count"), gene.column=1)
+hto = hto[1:4,]
+hto[1:4,1:5]
+Matrix::rowSums(hto)
+
+test="-1"
+colnames(hto) = paste(colnames(hto),test,sep = "")
+common <- intersect(colnames(data), colnames(hto))
+data <- data[,common]
+hto <- hto[,common]
+rownames(hto) <- tags
+
+hashing <- CreateSeuratObject(data)
+hashing[["HTO"]] <- CreateAssayObject(hto)
+hashing <- NormalizeData(object = hashing, assay = "HTO", normalization.method = "CLR")
+hashing <- HTODemux(hashing)
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(hashing@assays$RNA), value = TRUE)
+ribo.genes <- grep(pattern = "^RP[SL]", x = rownames(hashing@assays$RNA), value = TRUE)
+dropouts <- Matrix::colSums(hashing@assays$RNA@data == 0)/nrow(hashing@assays$RNA)
+percent.mito <- Matrix::colSums(hashing@assays$RNA[mito.genes, ])/Matrix::colSums(hashing@assays$RNA)
+percent.ribo <- Matrix::colSums(hashing@assays$RNA[ribo.genes, ])/Matrix::colSums(hashing@assays$RNA)
+hashing[['percent.mito']] <- percent.mito
+hashing[['percent.ribo']] <- percent.ribo
+hashing[['dropouts']] <- dropouts
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+dim(hashing@assays$RNA)
+
+hashing <- subset(hashing, subset = percent.mito < 0.15)
+dim(hashing@assays$RNA)
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+
+print(table(hashing@meta.data$HTO_classification.global))
+hashing <- SetIdent(hashing, value = "HTO_maxID")
+
+HTOHeatmap(hashing)
+
+```
+
+#### Singlet only
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=12 }
+
+hashing <- SetIdent(hashing, value = "HTO_classification.global")
+singlet <- subset(hashing, idents = "Singlet")
+table(singlet@meta.data$HTO_maxID)
+
+```
+
+
+#### Tag analysis
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=8 }
+
+### Tag1 analysis
+
+tag1 <- subset(singlet, subset = HTO_maxID == tags[1])
+tag1@meta.data$library <- Lib
+tag1@meta.data$tag <- paste0(Lib,"1")
+tag1@meta.data$BMP9 <- "0 ng/ml"
+tag1@meta.data$phenotype <- "CTRL"
+tag1@meta.data$patient <- patient[1]
+tag1@meta.data$sample <- tags[1]
+
+tag1 <- SCTransform(object = tag1, verbose = FALSE)
+tag1 <- RunPCA(tag1, verbose = FALSE)
+tag1 <- RunUMAP(object = tag1, dims = 1:30)
+tag1 <- FindNeighbors(object = tag1, do.plot=TRUE, dims = 1:30)
+tag1 <- FindClusters(object = tag1, resolution=0.4)
+DimPlot(object = tag1, label=TRUE)
+
+tag1 <- RenameCells(tag1, add.cell.id = paste0(Lib,"1"))
+saveRDS(tag1, paste0(outdir,"/samples/",Lib,"1",".rds"))
+
+### Tag2 analysis
+
+tag2 <- subset(singlet, subset = HTO_maxID == tags[2])
+tag2@meta.data$library <- Lib
+tag2@meta.data$tag <- paste0(Lib,"2")
+tag2@meta.data$BMP9 <- "10 ng/ml"
+tag2@meta.data$phenotype <- "CTRL.BMP9"
+tag2@meta.data$patient <- patient[2]
+tag2@meta.data$sample <- tags[2]
+
+tag2 <- SCTransform(object = tag2, verbose = FALSE)
+tag2 <- RunPCA(tag2, verbose = FALSE)
+tag2 <- RunUMAP(object = tag2, dims = 1:30)
+tag2 <- FindNeighbors(object = tag2, do.plot=TRUE, dims = 1:30)
+tag2 <- FindClusters(object = tag2, resolution=0.4)
+DimPlot(object = tag2, label=TRUE)
+
+tag2 <- RenameCells(tag2, add.cell.id = paste0(Lib,"2"))
+saveRDS(tag2, paste0(outdir,"/samples/",Lib,"2",".rds"))
+
+### Tag3 analysis
+
+tag3 <- subset(singlet, subset = HTO_maxID == tags[3])
+tag3@meta.data$library <- Lib
+tag3@meta.data$tag <- paste0(Lib,"3")
+tag3@meta.data$BMP9 <- "0 ng/ml"
+tag3@meta.data$phenotype <- "HTAP"
+tag3@meta.data$patient <- patient[3]
+tag3@meta.data$sample <- tags[3]
+
+tag3 <- SCTransform(object = tag3, verbose = FALSE)
+tag3 <- RunPCA(tag3, verbose = FALSE)
+tag3 <- RunUMAP(object = tag3, dims = 1:30)
+tag3 <- FindNeighbors(object = tag3, do.plot=TRUE, dims = 1:30)
+tag3 <- FindClusters(object = tag3, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag3, label=TRUE)
+
+tag3 <- RenameCells(tag3, add.cell.id = paste0(Lib,"3"))
+saveRDS(tag3, paste0(outdir,"/samples/",Lib,"3",".rds"))
+
+### Tag4 analysis
+
+tag4 <- subset(singlet, subset = HTO_maxID == tags[4])
+tag4@meta.data$library <- Lib
+tag4@meta.data$tag <- paste0(Lib,"4")
+tag4@meta.data$BMP9 <- "10 ng/ml"
+tag4@meta.data$phenotype <- "HTAP.BMP9"
+tag4@meta.data$patient <- patient[4]
+tag4@meta.data$sample <- tags[4]
+
+tag4 <- SCTransform(object = tag4, verbose = FALSE)
+tag4 <- RunPCA(tag4, verbose = FALSE)
+tag4 <- RunUMAP(object = tag4, dims = 1:30)
+tag4 <- FindNeighbors(object = tag4, do.plot=TRUE, dims = 1:30)
+tag4 <- FindClusters(object = tag4, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag4, label=TRUE)
+
+tag4 <- RenameCells(tag4, add.cell.id = paste0(Lib,"4"))
+saveRDS(tag4, paste0(outdir,"/samples/",Lib,"4",".rds"))
+
+```
+
+
+## library B
+### Qualty Control, hashing demultiplexing
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=16}
+
+Lib <- "B"
+patient <-  c("C681725","C681725","H231","H231")
+tags <-  c("C681725","C681725.BMP9","H231","H231.BMP9")
+
+data <- Read10X(paste0(workdir,"/data/Lib_",Lib))
+hto <- Read10X(paste0(workdir, "/data/hto/Lib_",Lib,"_umi_count"), gene.column=1)
+hto = hto[1:4,]
+hto[1:4,1:5]
+Matrix::rowSums(hto)
+
+test="-1"
+colnames(hto) = paste(colnames(hto),test,sep = "")
+common <- intersect(colnames(data), colnames(hto))
+data <- data[,common]
+hto <- hto[,common]
+rownames(hto) <- tags
+
+hashing <- CreateSeuratObject(data)
+hashing[["HTO"]] <- CreateAssayObject(hto)
+hashing <- NormalizeData(object = hashing, assay = "HTO", normalization.method = "CLR")
+hashing <- HTODemux(hashing)
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(hashing@assays$RNA), value = TRUE)
+ribo.genes <- grep(pattern = "^RP[SL]", x = rownames(hashing@assays$RNA), value = TRUE)
+dropouts <- Matrix::colSums(hashing@assays$RNA@data == 0)/nrow(hashing@assays$RNA)
+percent.mito <- Matrix::colSums(hashing@assays$RNA[mito.genes, ])/Matrix::colSums(hashing@assays$RNA)
+percent.ribo <- Matrix::colSums(hashing@assays$RNA[ribo.genes, ])/Matrix::colSums(hashing@assays$RNA)
+hashing[['percent.mito']] <- percent.mito
+hashing[['percent.ribo']] <- percent.ribo
+hashing[['dropouts']] <- dropouts
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+dim(hashing@assays$RNA)
+
+hashing <- subset(hashing, subset = percent.mito < 0.15)
+dim(hashing@assays$RNA)
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+
+print(table(hashing@meta.data$HTO_classification.global))
+hashing <- SetIdent(hashing, value = "HTO_maxID")
+
+HTOHeatmap(hashing)
+
+```
+
+#### Singlet only
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=12 }
+
+hashing <- SetIdent(hashing, value = "HTO_classification.global")
+singlet <- subset(hashing, idents = "Singlet")
+table(singlet@meta.data$HTO_maxID)
+
+```
+
+#### Tag analysis
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=8 }
+
+### Tag1 analysis
+
+tag1 <- subset(singlet, subset = HTO_maxID == tags[1])
+tag1@meta.data$library <- Lib
+tag1@meta.data$tag <- paste0(Lib,"1")
+tag1@meta.data$BMP9 <- "0 ng/ml"
+tag1@meta.data$phenotype <- "CTRL"
+tag1@meta.data$patient <- patient[1]
+tag1@meta.data$sample <- tags[1]
+
+tag1 <- SCTransform(object = tag1, verbose = FALSE)
+tag1 <- RunPCA(tag1, verbose = FALSE)
+tag1 <- RunUMAP(object = tag1, dims = 1:30)
+tag1 <- FindNeighbors(object = tag1, do.plot=TRUE, dims = 1:30)
+tag1 <- FindClusters(object = tag1, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag1, label=TRUE)
+
+tag1 <- RenameCells(tag1, add.cell.id = paste0(Lib,"1"))
+saveRDS(tag1, paste0(outdir,"/samples/",Lib,"1",".rds"))
+
+### Tag2 analysis
+
+tag2 <- subset(singlet, subset = HTO_maxID == tags[2])
+tag2@meta.data$library <- Lib
+tag2@meta.data$tag <- paste0(Lib,"2")
+tag2@meta.data$BMP9 <- "10 ng/ml"
+tag2@meta.data$phenotype <- "CTRL.BMP9"
+tag2@meta.data$patient <- patient[2]
+tag2@meta.data$sample <- tags[2]
+
+tag2 <- SCTransform(object = tag2, verbose = FALSE)
+tag2 <- RunPCA(tag2, verbose = FALSE)
+tag2 <- RunUMAP(object = tag2, dims = 1:30)
+tag2 <- FindNeighbors(object = tag2, do.plot=TRUE, dims = 1:30)
+tag2 <- FindClusters(object = tag2, resolution=0.4)
+invisible(gc())
+DimPlot(object = tag2, label=TRUE)
+
+tag2 <- RenameCells(tag2, add.cell.id = paste0(Lib,"2"))
+saveRDS(tag2, paste0(outdir,"/samples/",Lib,"2",".rds"))
+
+### Tag3 analysis
+
+tag3 <- subset(singlet, subset = HTO_maxID == tags[3])
+tag3@meta.data$library <- Lib
+tag3@meta.data$tag <- paste0(Lib,"3")
+tag3@meta.data$BMP9 <- "0 ng/ml"
+tag3@meta.data$phenotype <- "HTAP"
+tag3@meta.data$patient <- patient[3]
+tag3@meta.data$sample <- tags[3]
+
+tag3 <- SCTransform(object = tag3, verbose = FALSE)
+tag3 <- RunPCA(tag3, verbose = FALSE)
+tag3 <- RunUMAP(object = tag3, dims = 1:30)
+tag3 <- FindNeighbors(object = tag3, do.plot=TRUE, dims = 1:30)
+tag3 <- FindClusters(object = tag3, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag3, label=TRUE)
+
+tag3 <- RenameCells(tag3, add.cell.id = paste0(Lib,"3"))
+saveRDS(tag3, paste0(outdir,"/samples/",Lib,"3",".rds"))
+
+### Tag4 analysis
+
+tag4 <- subset(singlet, subset = HTO_maxID == tags[4])
+tag4@meta.data$library <- Lib
+tag4@meta.data$tag <- paste0(Lib,"4")
+tag4@meta.data$BMP9 <- "10 ng/ml"
+tag4@meta.data$phenotype <- "HTAP.BMP9"
+tag4@meta.data$patient <- patient[4]
+tag4@meta.data$sample <- tags[4]
+
+tag4 <- SCTransform(object = tag4, verbose = FALSE)
+tag4 <- RunPCA(tag4, verbose = FALSE)
+tag4 <- RunUMAP(object = tag4, dims = 1:30)
+tag4 <- FindNeighbors(object = tag4, do.plot=TRUE, dims = 1:30)
+tag4 <- FindClusters(object = tag4, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag4, label=TRUE)
+
+tag4 <- RenameCells(tag4, add.cell.id = paste0(Lib,"4"))
+saveRDS(tag4, paste0(outdir,"/samples/",Lib,"4",".rds"))
+
+```
+
+
+## library C
+### Qualty Control, hashing demultiplexing
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=16}
+
+Lib <- "C"
+patient <-  c("C681086","C681086","H247","H247")
+tags <-  c("C681086","C681086.BMP9","H247","H247.BMP9")
+
+data <- Read10X(paste0(workdir,"/data/Lib_",Lib))
+hto <- Read10X(paste0(workdir, "/data/hto/Lib_",Lib,"_umi_count"), gene.column=1)
+hto = hto[1:4,]
+hto[1:4,1:5]
+Matrix::rowSums(hto)
+
+test="-1"
+colnames(hto) = paste(colnames(hto),test,sep = "")
+common <- intersect(colnames(data), colnames(hto))
+data <- data[,common]
+hto <- hto[,common]
+rownames(hto) <- tags
+
+hashing <- CreateSeuratObject(data)
+hashing[["HTO"]] <- CreateAssayObject(hto)
+hashing <- NormalizeData(object = hashing, assay = "HTO", normalization.method = "CLR")
+hashing <- HTODemux(hashing)
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(hashing@assays$RNA), value = TRUE)
+ribo.genes <- grep(pattern = "^RP[SL]", x = rownames(hashing@assays$RNA), value = TRUE)
+dropouts <- Matrix::colSums(hashing@assays$RNA@data == 0)/nrow(hashing@assays$RNA)
+percent.mito <- Matrix::colSums(hashing@assays$RNA[mito.genes, ])/Matrix::colSums(hashing@assays$RNA)
+percent.ribo <- Matrix::colSums(hashing@assays$RNA[ribo.genes, ])/Matrix::colSums(hashing@assays$RNA)
+hashing[['percent.mito']] <- percent.mito
+hashing[['percent.ribo']] <- percent.ribo
+hashing[['dropouts']] <- dropouts
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+dim(hashing@assays$RNA)
+
+hashing <- subset(hashing, subset = percent.mito < 0.15)
+dim(hashing@assays$RNA)
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+
+print(table(hashing@meta.data$HTO_classification.global))
+hashing <- SetIdent(hashing, value = "HTO_maxID")
+
+HTOHeatmap(hashing)
+
+```
+
+#### Singlet only
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=12 }
+
+hashing <- SetIdent(hashing, value = "HTO_classification.global")
+singlet <- subset(hashing, idents = "Singlet")
+table(singlet@meta.data$HTO_maxID)
+
+```
+
+
+#### Tag analysis
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=8 }
+
+### Tag1 analysis
+
+tag1 <- subset(singlet, subset = HTO_maxID == tags[1])
+tag1@meta.data$library <- Lib
+tag1@meta.data$tag <- paste0(Lib,"1")
+tag1@meta.data$BMP9 <- "0 ng/ml"
+tag1@meta.data$phenotype <- "CTRL"
+tag1@meta.data$patient <- patient[1]
+tag1@meta.data$sample <- tags[1]
+
+tag1 <- SCTransform(object = tag1, verbose = FALSE)
+tag1 <- RunPCA(tag1, verbose = FALSE)
+tag1 <- RunUMAP(object = tag1, dims = 1:30)
+tag1 <- FindNeighbors(object = tag1, do.plot=TRUE, dims = 1:30)
+tag1 <- FindClusters(object = tag1, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag1, label=TRUE)
+
+tag1 <- RenameCells(tag1, add.cell.id = paste0(Lib,"1"))
+saveRDS(tag1, paste0(outdir,"/samples/",Lib,"1",".rds"))
+
+### Tag2 analysis
+
+tag2 <- subset(singlet, subset = HTO_maxID == tags[2])
+tag2@meta.data$library <- Lib
+tag2@meta.data$tag <- paste0(Lib,"2")
+tag2@meta.data$BMP9 <- "10 ng/ml"
+tag2@meta.data$phenotype <- "CTRL.BMP9"
+tag2@meta.data$patient <- patient[2]
+tag2@meta.data$sample <- tags[2]
+
+tag2 <- SCTransform(object = tag2, verbose = FALSE)
+tag2 <- RunPCA(tag2, verbose = FALSE)
+tag2 <- RunUMAP(object = tag2, dims = 1:30)
+tag2 <- FindNeighbors(object = tag2, do.plot=TRUE, dims = 1:30)
+tag2 <- FindClusters(object = tag2, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag2, label=TRUE)
+
+tag2 <- RenameCells(tag2, add.cell.id = paste0(Lib,"2"))
+saveRDS(tag2, paste0(outdir,"/samples/",Lib,"2",".rds"))
+
+### Tag3 analysis
+
+tag3 <- subset(singlet, subset = HTO_maxID == tags[3])
+tag3@meta.data$library <- Lib
+tag3@meta.data$tag <- paste0(Lib,"3")
+tag3@meta.data$BMP9 <- "0 ng/ml"
+tag3@meta.data$phenotype <- "HTAP"
+tag3@meta.data$patient <- patient[3]
+tag3@meta.data$sample <- tags[3]
+
+tag3 <- SCTransform(object = tag3, verbose = FALSE)
+tag3 <- RunPCA(tag3, verbose = FALSE)
+tag3 <- RunUMAP(object = tag3, dims = 1:30)
+tag3 <- FindNeighbors(object = tag3, do.plot=TRUE, dims = 1:30)
+tag3 <- FindClusters(object = tag3, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag3, label=TRUE)
+
+tag3 <- RenameCells(tag3, add.cell.id = paste0(Lib,"3"))
+saveRDS(tag3, paste0(outdir,"/samples/",Lib,"3",".rds"))
+
+
+### Tag4 analysis
+
+tag4 <- subset(singlet, subset = HTO_maxID == tags[4])
+tag4@meta.data$library <- Lib
+tag4@meta.data$tag <- paste0(Lib,"4")
+tag4@meta.data$BMP9 <- "10 ng/ml"
+tag4@meta.data$phenotype <- "HTAP.BMP9"
+tag4@meta.data$patient <- patient[4]
+tag4@meta.data$sample <- tags[4]
+
+tag4 <- SCTransform(object = tag4, verbose = FALSE)
+tag4 <- RunPCA(tag4, verbose = FALSE)
+tag4 <- RunUMAP(object = tag4, dims = 1:30)
+tag4 <- FindNeighbors(object = tag4, do.plot=TRUE, dims = 1:30)
+tag4 <- FindClusters(object = tag4, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag4, label=TRUE)
+
+tag4 <- RenameCells(tag4, add.cell.id = paste0(Lib,"4"))
+saveRDS(tag4, paste0(outdir,"/samples/",Lib,"4",".rds"))
+
+```
+
+
+## library D
+### Qualty Control, hashing demultiplexing
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=16}
+
+Lib <- "D"
+patient <-  c("C685116","C685116","H248","H248")
+tags <-  c("C685116","C685116.BMP9","H248","H248.BMP9")
+
+data <- Read10X(paste0(workdir,"/data/Lib_",Lib))
+hto <- Read10X(paste0(workdir, "/data/hto/Lib_",Lib,"_umi_count"), gene.column=1)
+hto = hto[1:4,]
+hto[1:4,1:5]
+Matrix::rowSums(hto)
+
+test="-1"
+colnames(hto) = paste(colnames(hto),test,sep = "")
+common <- intersect(colnames(data), colnames(hto))
+data <- data[,common]
+hto <- hto[,common]
+rownames(hto) <- tags
+
+hashing <- CreateSeuratObject(data)
+hashing[["HTO"]] <- CreateAssayObject(hto)
+hashing <- NormalizeData(object = hashing, assay = "HTO", normalization.method = "CLR")
+hashing <- HTODemux(hashing)
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(hashing@assays$RNA), value = TRUE)
+ribo.genes <- grep(pattern = "^RP[SL]", x = rownames(hashing@assays$RNA), value = TRUE)
+dropouts <- Matrix::colSums(hashing@assays$RNA@data == 0)/nrow(hashing@assays$RNA)
+percent.mito <- Matrix::colSums(hashing@assays$RNA[mito.genes, ])/Matrix::colSums(hashing@assays$RNA)
+percent.ribo <- Matrix::colSums(hashing@assays$RNA[ribo.genes, ])/Matrix::colSums(hashing@assays$RNA)
+hashing[['percent.mito']] <- percent.mito
+hashing[['percent.ribo']] <- percent.ribo
+hashing[['dropouts']] <- dropouts
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+dim(hashing@assays$RNA)
+
+hashing <- subset(hashing, subset = percent.mito < 0.15)
+dim(hashing@assays$RNA)
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+
+print(table(hashing@meta.data$HTO_classification.global))
+hashing <- SetIdent(hashing, value = "HTO_maxID")
+
+HTOHeatmap(hashing)
+
+```
+
+#### Singlet only
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=12 }
+
+hashing <- SetIdent(hashing, value = "HTO_classification.global")
+singlet <- subset(hashing, idents = "Singlet")
+table(singlet@meta.data$HTO_maxID)
+
+```
+
+
+#### Tag analysis
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=8 }
+
+### Tag1 analysis
+
+tag1 <- subset(singlet, subset = HTO_maxID == tags[1])
+tag1@meta.data$library <- Lib
+tag1@meta.data$tag <- paste0(Lib,"1")
+tag1@meta.data$BMP9 <- "0 ng/ml"
+tag1@meta.data$phenotype <- "CTRL"
+tag1@meta.data$patient <- patient[1]
+tag1@meta.data$sample <- tags[1]
+
+tag1 <- SCTransform(object = tag1, verbose = FALSE)
+tag1 <- RunPCA(tag1, verbose = FALSE)
+tag1 <- RunUMAP(object = tag1, dims = 1:30)
+tag1 <- FindNeighbors(object = tag1, do.plot=TRUE, dims = 1:30)
+tag1 <- FindClusters(object = tag1, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag1, label=TRUE)
+
+tag1 <- RenameCells(tag1, add.cell.id = paste0(Lib,"1"))
+saveRDS(tag1, paste0(outdir,"/samples/",Lib,"1",".rds"))
+
+
+### Tag2 analysis
+
+tag2 <- subset(singlet, subset = HTO_maxID == tags[2])
+tag2@meta.data$library <- Lib
+tag2@meta.data$tag <- paste0(Lib,"2")
+tag2@meta.data$BMP9 <- "10 ng/ml"
+tag2@meta.data$phenotype <- "CTRL.BMP9"
+tag2@meta.data$patient <- patient[2]
+tag2@meta.data$sample <- tags[2]
+
+tag2 <- SCTransform(object = tag2, verbose = FALSE)
+tag2 <- RunPCA(tag2, verbose = FALSE)
+tag2 <- RunUMAP(object = tag2, dims = 1:30)
+tag2 <- FindNeighbors(object = tag2, do.plot=TRUE, dims = 1:30)
+tag2 <- FindClusters(object = tag2, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag2, label=TRUE)
+
+tag2 <- RenameCells(tag2, add.cell.id = paste0(Lib,"2"))
+saveRDS(tag2, paste0(outdir,"/samples/",Lib,"2",".rds"))
+
+### Tag3 analysis
+
+tag3 <- subset(singlet, subset = HTO_maxID == tags[3])
+tag3@meta.data$library <- Lib
+tag3@meta.data$tag <- paste0(Lib,"3")
+tag3@meta.data$BMP9 <- "0 ng/ml"
+tag3@meta.data$phenotype <- "HTAP"
+tag3@meta.data$patient <- patient[3]
+tag3@meta.data$sample <- tags[3]
+
+tag3 <- SCTransform(object = tag3, verbose = FALSE)
+tag3 <- RunPCA(tag3, verbose = FALSE)
+tag3 <- RunUMAP(object = tag3, dims = 1:30)
+tag3 <- FindNeighbors(object = tag3, do.plot=TRUE, dims = 1:30)
+tag3 <- FindClusters(object = tag3, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag3, label=TRUE)
+
+tag3 <- RenameCells(tag3, add.cell.id = paste0(Lib,"3"))
+saveRDS(tag3, paste0(outdir,"/samples/",Lib,"3",".rds"))
+
+### Tag4 analysis
+
+tag4 <- subset(singlet, subset = HTO_maxID == tags[4])
+tag4@meta.data$library <- Lib
+tag4@meta.data$tag <- paste0(Lib,"4")
+tag4@meta.data$BMP9 <- "10 ng/ml"
+tag4@meta.data$phenotype <- "HTAP.BMP9"
+tag4@meta.data$patient <- patient[4]
+tag4@meta.data$sample <- tags[4]
+
+tag4 <- SCTransform(object = tag4, verbose = FALSE)
+tag4 <- RunPCA(tag4, verbose = FALSE)
+tag4 <- RunUMAP(object = tag4, dims = 1:30)
+tag4 <- FindNeighbors(object = tag4, do.plot=TRUE, dims = 1:30)
+tag4 <- FindClusters(object = tag4, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag4, label=TRUE)
+
+tag4 <- RenameCells(tag4, add.cell.id = paste0(Lib,"4"))
+saveRDS(tag4, paste0(outdir,"/samples/",Lib,"4",".rds"))
+
+```
+
+
+
+## library E
+### Qualty Control, hashing demultiplexing
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=16}
+
+Lib <- "E"
+patient <-  c("C676136","C676136","H250","H250")
+tags <-  c("C676136","C676136.BMP9","H250","H250.BMP9")
+
+data <- Read10X(paste0(workdir,"/data/Lib_",Lib))
+hto <- Read10X(paste0(workdir, "/data/hto/Lib_",Lib,"_umi_count"), gene.column=1)
+hto = hto[1:4,]
+hto[1:4,1:5]
+Matrix::rowSums(hto)
+
+test="-1"
+colnames(hto) = paste(colnames(hto),test,sep = "")
+common <- intersect(colnames(data), colnames(hto))
+data <- data[,common]
+hto <- hto[,common]
+rownames(hto) <- tags
+
+hashing <- CreateSeuratObject(data)
+hashing[["HTO"]] <- CreateAssayObject(hto)
+hashing <- NormalizeData(object = hashing, assay = "HTO", normalization.method = "CLR")
+hashing <- HTODemux(hashing)
+
+mito.genes <- grep(pattern = "^MT-", x = rownames(hashing@assays$RNA), value = TRUE)
+ribo.genes <- grep(pattern = "^RP[SL]", x = rownames(hashing@assays$RNA), value = TRUE)
+dropouts <- Matrix::colSums(hashing@assays$RNA@data == 0)/nrow(hashing@assays$RNA)
+percent.mito <- Matrix::colSums(hashing@assays$RNA[mito.genes, ])/Matrix::colSums(hashing@assays$RNA)
+percent.ribo <- Matrix::colSums(hashing@assays$RNA[ribo.genes, ])/Matrix::colSums(hashing@assays$RNA)
+hashing[['percent.mito']] <- percent.mito
+hashing[['percent.ribo']] <- percent.ribo
+hashing[['dropouts']] <- dropouts
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+dim(hashing@assays$RNA)
+
+hashing <- subset(hashing, subset = percent.mito < 0.15)
+dim(hashing@assays$RNA)
+VlnPlot(hashing, features = c("nFeature_RNA", "nCount_RNA","dropouts","percent.ribo","percent.mito"), ncol=5)
+
+print(table(hashing@meta.data$HTO_classification.global))
+hashing <- SetIdent(hashing, value = "HTO_maxID")
+
+HTOHeatmap(hashing)
+
+
+```
+
+#### Singlet only
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=12 }
+
+hashing <- SetIdent(hashing, value = "HTO_classification.global")
+singlet <- subset(hashing, idents = "Singlet")
+table(singlet@meta.data$HTO_maxID)
+
+```
+
+
+#### Tag analysis
+
+```{r message=FALSE, warning=FALSE, eval=T, fig.height=6, fig.width=8 }
+
+### Tag1 analysis
+
+tag1 <- subset(singlet, subset = HTO_maxID == tags[1])
+tag1@meta.data$library <- Lib
+tag1@meta.data$tag <- paste0(Lib,"1")
+tag1@meta.data$BMP9 <- "0 ng/ml"
+tag1@meta.data$phenotype <- "CTRL"
+tag1@meta.data$patient <- patient[1]
+tag1@meta.data$sample <- tags[1]
+
+tag1 <- SCTransform(object = tag1, verbose = FALSE)
+tag1 <- RunPCA(tag1, verbose = FALSE)
+tag1 <- RunUMAP(object = tag1, dims = 1:30)
+tag1 <- FindNeighbors(object = tag1, do.plot=TRUE, dims = 1:30)
+tag1 <- FindClusters(object = tag1, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag1, label=TRUE)
+
+tag1 <- RenameCells(tag1, add.cell.id = paste0(Lib,"1"))
+saveRDS(tag1, paste0(outdir,"/samples/",Lib,"1",".rds"))
+
+### Tag2 analysis
+
+tag2 <- subset(singlet, subset = HTO_maxID == tags[2])
+tag2@meta.data$library <- Lib
+tag2@meta.data$tag <- paste0(Lib,"2")
+tag2@meta.data$BMP9 <- "10 ng/ml"
+tag2@meta.data$phenotype <- "CTRL.BMP9"
+tag2@meta.data$patient <- patient[2]
+tag2@meta.data$sample <- tags[2]
+
+tag2 <- SCTransform(object = tag2, verbose = FALSE)
+tag2 <- RunPCA(tag2, verbose = FALSE)
+tag2 <- RunUMAP(object = tag2, dims = 1:30)
+tag2 <- FindNeighbors(object = tag2, do.plot=TRUE, dims = 1:30)
+tag2 <- FindClusters(object = tag2, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag2, label=TRUE)
+
+tag2 <- RenameCells(tag2, add.cell.id = paste0(Lib,"2"))
+saveRDS(tag2, paste0(outdir,"/samples/",Lib,"2",".rds"))
+
+
+### Tag3 analysis
+
+tag3 <- subset(singlet, subset = HTO_maxID == tags[3])
+tag3@meta.data$library <- Lib
+tag3@meta.data$tag <- paste0(Lib,"3")
+tag3@meta.data$BMP9 <- "0 ng/ml"
+tag3@meta.data$phenotype <- "HTAP"
+tag3@meta.data$patient <- patient[3]
+tag3@meta.data$sample <- tags[3]
+
+tag3 <- SCTransform(object = tag3, verbose = FALSE)
+tag3 <- RunPCA(tag3, verbose = FALSE)
+tag3 <- RunUMAP(object = tag3, dims = 1:30)
+tag3 <- FindNeighbors(object = tag3, do.plot=TRUE, dims = 1:30)
+tag3 <- FindClusters(object = tag3, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag3, label=TRUE)
+
+tag3 <- RenameCells(tag3, add.cell.id = paste0(Lib,"3"))
+saveRDS(tag3, paste0(outdir,"/samples/",Lib,"3",".rds"))
+
+### Tag4 analysis
+
+tag4 <- subset(singlet, subset = HTO_maxID == tags[4])
+tag4@meta.data$library <- Lib
+tag4@meta.data$tag <- paste0(Lib,"4")
+tag4@meta.data$BMP9 <- "10 ng/ml"
+tag4@meta.data$phenotype <- "HTAP.BMP9"
+tag4@meta.data$patient <- patient[4]
+tag4@meta.data$sample <- tags[4]
+
+tag4 <- SCTransform(object = tag4, verbose = FALSE)
+tag4 <- RunPCA(tag4, verbose = FALSE)
+tag4 <- RunUMAP(object = tag4, dims = 1:30)
+tag4 <- FindNeighbors(object = tag4, do.plot=TRUE, dims = 1:30)
+tag4 <- FindClusters(object = tag4, resolution=0.4)
+invisible(gc())
+
+DimPlot(object = tag4, label=TRUE)
+
+tag4 <- RenameCells(tag4, add.cell.id = paste0(Lib,"4"))
+saveRDS(tag4, paste0(outdir,"/samples/",Lib,"4",".rds"))
+
+```
+
+
+# Integrating samples by condition
+
+## Integration CTRL (A1, B1, C1, D1, E1)
+
+```{r }
+
+A1 <- readRDS(paste(data, "A1.rds", sep = "/"))
+B1 <- readRDS(paste(data, "B1.rds", sep = "/"))
+C1 <- readRDS(paste(data, "C1.rds", sep = "/"))
+D1 <- readRDS(paste(data, "D1.rds", sep = "/"))
+E1 <- readRDS(paste(data, "E1.rds", sep = "/"))
+list <- c(A1, B1, C1, D1, E1)
+rm(A1, B1, C1, D1, E1)
+invisible(gc())
+
+features <- SelectIntegrationFeatures(object.list = list, nfeatures = 3000)
+list <- PrepSCTIntegration(object.list = list, anchor.features = features)
+list <- lapply(X = list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = list, anchor.features = features, 
+                                  normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+rm(list)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+rm(anchors)
+invisible(gc())
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, dims = 1:30)
+integrated <- FindNeighbors(object = integrated, dims = 1:30)
+integrated <- FindClusters(object = integrated, resolution=0.2)
+invisible(gc())
+DimPlot(object = integrated, label=TRUE, pt.size = 1)
+saveRDS(integrated, paste(outdir,"integrated/ctrl.rds", sep = "/"))
+invisible(gc())
+
+```
+
+
+## Integration CTRL.BMP9 (A2, B2, C2, D2, E2)
+
+```{r }
+
+A2 <- readRDS(paste(data, "A2.rds", sep = "/"))
+B2 <- readRDS(paste(data, "B2.rds", sep = "/"))
+C2 <- readRDS(paste(data, "C2.rds", sep = "/"))
+D2 <- readRDS(paste(data, "D2.rds", sep = "/"))
+E2 <- readRDS(paste(data, "E2.rds", sep = "/"))
+list <- c(A2, B2, C2, D2, E2)
+rm(A2, B2, C2, D2, E2)
+invisible(gc())
+
+features <- SelectIntegrationFeatures(object.list = list, nfeatures = 3000)
+list <- PrepSCTIntegration(object.list = list, anchor.features = features)
+list <- lapply(X = list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = list, anchor.features = features, 
+                                  normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+rm(list)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+rm(anchors)
+invisible(gc())
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, dims = 1:30)
+integrated <- FindNeighbors(object = integrated, dims = 1:30)
+integrated <- FindClusters(object = integrated, resolution = 0.2)
+invisible(gc())
+DimPlot(object = integrated, label=TRUE, pt.size = 1)
+saveRDS(integrated, paste(outdir,"integrated/ctrl.bmp9.rds", sep = "/"))
+invisible(gc())
+
+```
+
+
+## Integration HTAP (A3, B3, C3, D3, E3)
+
+```{r }
+
+A3 <- readRDS(paste(data, "A3.rds", sep = "/"))
+B3 <- readRDS(paste(data, "B3.rds", sep = "/"))
+C3 <- readRDS(paste(data, "C3.rds", sep = "/"))
+D3 <- readRDS(paste(data, "D3.rds", sep = "/"))
+E3 <- readRDS(paste(data, "E3.rds", sep = "/"))
+list <- c(A3, B3, C3, D3, E3)
+rm(A3, B3, C3, D3, E3)
+invisible(gc())
+
+features <- SelectIntegrationFeatures(object.list = list, nfeatures = 3000)
+list <- PrepSCTIntegration(object.list = list, anchor.features = features)
+list <- lapply(X = list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = list, anchor.features = features, 
+                                  normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+rm(list)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+rm(anchors)
+invisible(gc())
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, dims = 1:30)
+integrated <- FindNeighbors(object = integrated, dims = 1:30)
+integrated <- FindClusters(object = integrated, resolution = 0.2)
+invisible(gc())
+DimPlot(object = integrated, label=TRUE, pt.size = 1)
+saveRDS(integrated, paste(outdir,"integrated/htap.rds", sep = "/"))
+invisible(gc())
+
+```
+
+
+## Integration HTAP.BMP9 (A4, B4, C4, D4, E4)
+
+```{r }
+
+A4 <- readRDS(paste(data, "A4.rds", sep = "/"))
+B4 <- readRDS(paste(data, "B4.rds", sep = "/"))
+C4 <- readRDS(paste(data, "C4.rds", sep = "/"))
+D4 <- readRDS(paste(data, "D4.rds", sep = "/"))
+E4 <- readRDS(paste(data, "E4.rds", sep = "/"))
+list <- c(A4, B4, C4, D4, E4)
+rm(A4, B4, C4, D4, E4)
+invisible(gc())
+
+features <- SelectIntegrationFeatures(object.list = list, nfeatures = 3000)
+list <- PrepSCTIntegration(object.list = list, anchor.features = features)
+list <- lapply(X = list, FUN = RunPCA, verbose = FALSE, features = features)
+anchors <- FindIntegrationAnchors(object.list = list, anchor.features = features, 
+                                  normalization.method = "SCT", reduction = "rpca", verbose = FALSE)
+rm(list)
+invisible(gc())
+integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT", verbose = FALSE)
+rm(anchors)
+invisible(gc())
+integrated <- RunPCA(integrated, verbose = FALSE)
+integrated <- RunUMAP(integrated, dims = 1:30)
+integrated <- FindNeighbors(object = integrated, dims = 1:30)
+integrated <- FindClusters(object = integrated, resolution = 0.2)
+invisible(gc())
+DimPlot(object = integrated, label=TRUE, pt.size = 1)
+saveRDS(integrated, paste(outdir,"integrated/htap.bmp9.rds", sep = "/"))
+rm(integrated)
+invisible(gc())
+
+```
+
+
+# Merge datasets
+
+```{r}
+
+ctrl <- readRDS(paste(outdir, "integrated/ctrl.rds", sep = "/"))
+ctrl.bmp9 <- readRDS(paste(outdir, "integrated/ctrl.bmp9.rds", sep = "/"))
+htap <- readRDS(paste(outdir, "integrated/htap.rds", sep = "/"))
+htap.bmp9 <- readRDS(paste(outdir, "integrated/htap.bmp9.rds", sep = "/"))
+list <- c(ctrl, ctrl.bmp9, htap, htap.bmp9)
+rm(ctrl, ctrl.bmp9, htap, htap.bmp9)
+merged <- Reduce(merge, list)
+rm(list)
+DefaultAssay(merged) <- "RNA"
+merged <- FindVariableFeatures(merged, nfeatures = 3000)
+merged <- ScaleData(merged)
+merged <- RunPCA(merged)
+merged <- RunUMAP(merged, dims = 1:30)
+merged <- FindNeighbors(object = merged, dims = 1:30)
+merged <- FindClusters(object = merged, resolution = 0.2)
+invisible(gc())
+DimPlot(merged, group.by = "seurat_clusters", label=TRUE, pt.size = 1)
+DimPlot(merged, group.by = "phenotype", label=TRUE, pt.size = 1)
+DimPlot(merged, group.by = "BMP9", label=TRUE, pt.size = 1)
+saveRDS(merged, paste(outdir,"integrated/merged.rds", sep = "/"))
+
+```
+
+
+# Cell annotation
+
+## Find Subclusters
+
+```{r subscluster}
+
+DefaultAssay(htap) <- "integrated"
+Idents(htap) <- "seurat_clusters"
+htap <- FindNeighbors(htap)
+htap <- FindSubCluster(object = htap, cluster = 7, resolution = 0.5, subcluster.name = "c7", graph.name = "SCT_snn", algorithm = 1)
+Idents(htap) <- "c7"
+htap <- FindSubCluster(object = htap, cluster = 8, resolution = 0.0001, subcluster.name = "c8", graph.name = "SCT_snn",algorithm = 1)
+Idents(htap) <- "c8"
+htap <- FindSubCluster(object = htap,cluster = 10,resolution = 0.2,subcluster.name = "subclusters",graph.name = "SCT_snn",algorithm = 1)
+
+DimPlot(htap, label = T, group.by = "subclusters")
+DimPlot(htap, label = T, group.by = "bmp9") + NoLegend()
+
+```
+
+
+## Find markers per seurat clusters
+
+```{r fig.width=10, fig.height=5}
+
+htap <- filter_quality(obj = htap)
+markers <- custom_FindMarkers(object = htap, group_by = "seurat_clusters", test_use = "wilcox")
+write.table(markers, paste(dir, "seurat_clusters_markers.tsv", sep = "/"), sep = "\t", row.names = FALSE, quote = FALSE, col.names = TRUE)
+top <- markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+Idents(htap) <- "seurat_clusters"
+custom_DotPlot(seurat_object = htap, features = rev(top$gene), x_lab_rotate = T, flip_axes = F, base_size = 10, theme_bw = T)
+
+```
+
+
+## Annotation
+### Clusters
+
+```{r fig.width=7, fig.height=5}
+
+Idents(htap) <- "subclusters"
+htap[["clusters"]]=""
+htap@meta.data[htap@meta.data$subclusters %in% c(0), "clusters"] <- "C1"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_0", "7_3", "7_5"), "clusters"] <- "C2"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_0","8_2","8_4", "8_5", "8_7", "8_11", "8_12", "8_13", "8_14","8_15","8_16","8_21", "8_25","8_27"), "clusters"] <- "C3"
+htap@meta.data[htap@meta.data$subclusters %in% c(1), "clusters"] <- "C4"
+htap@meta.data[htap@meta.data$subclusters %in% c(4), "clusters"] <- "C5"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_1"), "clusters"] <- "C6"
+
+htap@meta.data[htap@meta.data$subclusters %in% c(3), "clusters"] <- "C1'"
+htap@meta.data[htap@meta.data$subclusters %in% c("7_1", "7_2", "7_4"), "clusters"] <- "C2'"
+htap@meta.data[htap@meta.data$subclusters %in% c("8_1","8_3", "8_6", "8_8", "8_9", "8_10", "8_17", "8_18", "8_19", "8_20","8_22","8_23","8_24", "8_26","8_28","8_29","8_30", 9), "clusters"] <- "C3'"
+htap@meta.data[htap@meta.data$subclusters %in% c(2), "clusters"] <- "C4'"
+htap@meta.data[htap@meta.data$subclusters %in% c(6), "clusters"] <- "C5'"
+htap@meta.data[htap@meta.data$subclusters %in% c("10_0"), "clusters"] <- "C6'"
+htap@meta.data[htap@meta.data$subclusters %in% c(5), "clusters"] <- "Cycling cells"
+```
+
+## ALK1 (by ACVRL1 expression)
+
+```{r fig.width=7, fig.height=5}
+
+Idents(htap) <- "clusters"
+htap[["ALK1"]]=""
+htap[['ALK1']][which(htap@meta.data$clusters == "C1"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5"),] <- "ALK1 High"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6"),] <- "ALK1 Low"
+htap[['ALK1']][which(htap@meta.data$clusters == "C1'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C2'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C3'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C4'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C6'"),] <- "ALK1 Low+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "C5'"),] <- "ALK1 High+BMP9"
+htap[['ALK1']][which(htap@meta.data$clusters == "Cycling cells"),] <- "Cycling cells"
+
+saveRDS(htap, paste(outdir, "htap.rds", sep = "/"))
+
+```
+
+
+
+## Find markers per ALK1 clusters
+
+```{r fig.width=10, fig.height=5}
+
+htap <- filter_quality(obj = htap)
+markers <- custom_FindMarkers(object = htap, group_by = "ALK1", test_use = "wilcox")
+write.table(markers, paste(dir, "ALK1_markers.tsv", sep = "/"), sep = "\t", row.names = FALSE, quote = FALSE, col.names = TRUE)
+top <- markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+Idents(htap) <- "ALK1"
+custom_DotPlot(seurat_object = htap, features = rev(top$gene), x_lab_rotate = T, flip_axes = F, base_size = 10, theme_bw = T)
+
+```
+
+
+
+# Figure 2A
+
+```{r}
+
+Idents(htap) <- "clusters"
+htap5 <- subset(htap, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+rm(htap)
+Idents(htap5) <- "condition"
+htap5 <- subset(htap5, idents = "CTRL", invert = F)
+
+cols <- setNames(c("#78C679","#41AB5D","#01736b","#739154","#a6d8f5"), c("C1", "C2", "C3", "C4", "C5"))
+p <- DimPlot(htap5, group.by = "clusters", label = T, label.size = 3, label.box = T, repel = F, cols = cols) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+ggsave(paste(outdir, "Figure_2B.pdf", sep = "/"), width = 5, height = 5)
+
+
+```
+
+
+
+# Session Info
+
+```{r sessinf}
+sessionInfo()
+```
+
+
+

@@ -1,0 +1,2429 @@
+---
+title: "10x PAH BMP9 - ALK1 Analysis"
+author: '[Yvon Mbouamboua](mbouamboua@ipmc.cnrs.fr)'
+output:
+  html_document: default
+  html_notebook: default
+date: 'Compiled: `r Sys.Date()`'
+---
+
+# Setting parameters
+
+```{r setup, include=TRUE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      eval = TRUE,
+                      cache = FALSE, 
+                      cache.lazy = FALSE, 
+                      tidy = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE)
+the.seed <- 1337L
+options(future.globals.maxSize = 80000 * 1024^2)
+work.space <- "/data/data_mbouamboua/projects"
+work.dir <- paste(work.space, "10x.pah.bmp9", sep = "/")
+data.dir <- paste(work.space, "output/10x.pah.bmp9/rds", sep = "/")
+out.dir <-  paste(work.space, "output/10x.pah.bmp9", sep = "/")
+source("/data/data_mbouamboua/apps/Rpkgs/Rpkgs.R")
+# source(paste(work.dir,"done/filter.cells.R", sep = "/"))
+# source(paste(work.dir,"done/filter.genes.R", sep = "/"))
+# source(paste(work.dir,"done/find.cluster.markers.R", sep = "/"))
+
+set.seed(the.seed)
+```
+
+
+# Define colors
+
+```{r}
+my_palette <- list()
+# my_palette$sampleColors <- setNames(
+#   c(brewer.pal(n = 8, name = 'RdBu')),
+#   c("PAH_675093", "PAH_704945","PAH_698029", "PAH_693770","PRC_2","PRC_7","PRC_3","PRC_8")
+# )
+
+my_palette$cellColors <- setNames(
+ c(RColorBrewer::brewer.pal(n = 5, name = 'Paired'), RColorBrewer::brewer.pal(n = 5, name = "Dark2")),
+  c("C1", "C2", "C3", "C4", "C5", "C1'", "C2'", "C3'", "C4'", "C5'")
+)
+
+
+my_palette$cellColors5 <- setNames(
+ c(RColorBrewer::brewer.pal(n = 5, name = 'Paired')),
+  c("C1", "C2", "C3", "C4", "C5")
+)
+
+# Use colourblind-friendly colours
+friendly_cols <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99", "#999933", "#882255", "#661100", "#6699CC")
+
+# Set theme
+myTheme <-
+  list(
+    scale_fill_manual(values = friendly_cols),
+    scale_color_manual(values = friendly_cols),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 12),
+        legend.position = "right",
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+      )
+  )
+```
+
+
+
+# Load data
+
+```{r}
+htap <- readRDS(paste(data.dir, "htap_without_cycling.rds", sep = "/"))
+invisible(gc())
+DimPlot(htap, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap, group.by = "condition") + DarkTheme()
+DimPlot(htap, group.by = "sample") + DarkTheme()
+
+# Remove cluster C5 and C'6
+htap10 <- subset(htap, idents = c("C6", "C6'"), invert = T)
+DimPlot(htap10, group.by = "clusters", label = T, label.color = "white") + DarkTheme() + NoLegend()
+saveRDS(htap10, paste(out.dir, "rds", "htap_10_clusters_without_cycling.rds", sep = "/"))
+
+```
+
+# Subset cluster C1, C2, C3, C4, C5
+
+```{r}
+Idents(htap) <- "clusters"
+htap5 <- subset(htap, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+rm(htap)
+Idents(htap5) <- "condition"
+htap5 <- subset(htap5, idents = "CTRL", invert = F)
+saveRDS(htap5, paste(out.dir, "rds", "htap_5_clusters_without_cycling.rds", sep = "/"))
+DimPlot(htap5, group.by = "clusters", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap5, group.by = "ALK1", label = T, label.color = "white") + DarkTheme() + NoLegend()
+DimPlot(htap5, group.by = "condition") + DarkTheme()
+```
+
+
+
+# UMAP
+
+```{r fig.width=6, fig.height=5}
+
+p <- DimPlot(htap5, group.by = "clusters", label = T, label.size = 3, label.box = T, repel = F, cols = my_palette$cellColors5) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+
+pdf(paste(out.dir, "ALK1" , "umap_CTRL_5clusters.pdf", sep = "/"), width = 5, height = 5, useDingbats = FALSE)
+print(p)
+dev.off()
+
+
+
+labels <- c(expression("PMECs ALK1"^italic("High")),
+          expression("PMECs ALK1"^italic("Low")))
+
+p <- DimPlot(htap5, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  scale_color_discrete(labels = labels, type = c("#88CCEE", "#117733")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste(out.dir, "ALK1" , "umap_CTRL.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p)
+dev.off()
+
+
+
+
+p1 <- DimPlot(htap10, group.by = "phenotype", label = F, cols = c("#00BFC4", "#F8766D")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+
+pdf(paste(out.dir, "ALK1" , "umap_BMP9.pdf", sep = "/"), width = 6, height = 5, useDingbats = FALSE)
+print(p1)
+dev.off()
+
+p2 <- DimPlot(htap10, group.by = "condition", label = F, cols = c("#999933", "#AA4499", "#44AA99","#661100")) + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+pdf(paste(out.dir, "ALK1" , "umap_condition.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p2)
+dev.off()
+
+
+p3 <- DimPlot(htap10, group.by = "clusters", label = T, label.size = 3, label.box = T, repel = F, cols = my_palette$cellColors) + labs(title = " ") + 
+  labs(title = " ") + 
+  theme_bw() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  NoLegend()
+
+pdf(paste(out.dir, "ALK1" , "umap_clusters.pdf", sep = "/"), width = 5.5, height = 5, useDingbats = FALSE)
+print(p3)
+dev.off()
+
+
+labels <- c(expression("PMECs ALK1"^italic("High")),
+          expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+          expression("PMECs ALK1"^italic("Low")), 
+          expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"))
+
+p4 <- DimPlot(htap, group.by = "ALK1", label = F, label.size = 3, label.box = T, repel = F)+ 
+  scale_color_discrete(labels = labels, type = c("#88CCEE", "#CC6677", "#117733", "#DDCC77")) + 
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.text.align = 0) +
+  labs(title = " ")
+
+pdf(paste(out.dir, "ALK1" , "umap_AKL1.pdf", sep = "/"), width = 7, height = 5, useDingbats = FALSE)
+print(p4)
+dev.off()
+
+
+cowplot::plot_grid(p1+p2+p3+p4)
+# 
+# pdf(paste(out.dir, "ALK1" , "umap.pdf", sep = "/"), width = 14, height = 10, useDingbats = FALSE)
+# plot_grid(p1+p2+p3+p4)
+# dev.off()
+
+```
+
+
+```{r fig.width=4, fig.height=4}
+htap <- readRDS(paste(data.dir, "clean.rds", sep = "/"))
+
+Idents(htap) <- "ALK1"
+p1 <- DimPlot(htap,
+              group.by = "ALK1",
+              reduction = "umap",
+              repel = TRUE,
+              cells.highlight = WhichCells(htap,
+                                           idents = c("ALK1 High")),
+              cols.highlight = c("#88CCEE"),
+              cols = "grey",
+              sizes.highlight = 0.01) + 
+  theme(plot.title = element_text(hjust = 0.5, face = "plain"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none") + NoLegend() + NoAxes() + labs(title = " ")
+print(p1)
+
+pdf(paste(out.dir, "ALK1", "umap_ALK1_High.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p1)
+dev.off()
+
+
+p2 <- DimPlot(htap,
+              group.by = "ALK1",
+              reduction = "umap",
+              repel = TRUE,
+              cells.highlight = WhichCells(htap,
+                                           idents = c("ALK1 Low")),
+              cols.highlight = c("#117733"),
+              cols = "grey",
+              sizes.highlight = 0.01) + 
+  theme(plot.title = element_text(hjust = 0.5, face = "plain"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none") + NoLegend() + NoAxes() + labs(title = " ")
+print(p2)
+
+pdf(paste(out.dir, "ALK1", "umap_ALK1_Low.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p2)
+dev.off()
+
+p3 <- DimPlot(htap, group.by = "ALK1", label = F, cols =  c("#88CCEE", "gray", "#117733", "gray")) + NoLegend() + NoAxes() + labs(title = " ")
+print(p3)
+
+pdf(paste(out.dir, "ALK1", "umap_ALK1_High_ALK1_Low.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p3)
+dev.off()
+
+p4 <- DimPlot(htap, group.by = "ALK1", label = F, cols =  c("gray", "#CC6677", "gray", "#DDCC77")) + NoLegend() + NoAxes() + labs(title = " ")
+print(p4)
+
+pdf(paste(out.dir, "ALK1", "umap_ALK1_High_BMP9_ALK1_Low_BMP9.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p4)
+dev.off()
+
+p5 <- DimPlot(htap, group.by = "ALK1", label = F, cols =  c("gray", "gray", "#117733", "#DDCC77")) + NoLegend() + NoAxes() + labs(title = " ")
+print(p5)
+pdf(paste(out.dir, "ALK1", "umap_ALK1_Low_ALK1_Low_BMP9.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p5)
+dev.off()
+
+p6 <- DimPlot(htap, group.by = "ALK1", label = F, cols =  c("#88CCEE", "#CC6677", "gray", "gray")) + NoLegend() + NoAxes() + labs(title = " ")
+print(p6)
+
+pdf(paste(out.dir, "ALK1", "umap_ALK1_High_ALK1_High_BMP9.pdf", sep = "/"), width = 3, height = 3, useDingbats = FALSE)
+print(p6)
+dev.off()
+
+```
+
+
+
+# Cell proportions per sample
+
+```{r fig.width=3.5, fig.height=4}
+htap <- readRDS(paste(data.dir, "htap_without_cycling.rds", sep = "/"))
+Seurat::Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+Seurat::Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH", "CTRL"))
+DimPlot(sub)
+Seurat::Idents(sub) <- "ALK1"
+
+myPalette <- list()
+myPalette$sampleColor <- setNames(
+  colorRampPalette(RColorBrewer::brewer.pal(n = 11, name = 'RdBu'))(10),
+  #viridis::viridis(14),
+  c("H230", "H231","H247","H248","H250","C686518" ,"C681725", "C681086", "C685116", "C676136")
+)
+
+Idents(sub) <- "ALK1"
+freq_table <- prop.table(x = t(table(sub@active.ident, sub@meta.data[, "sample"])), margin = 2)*100
+freq_table <- reshape2::melt(freq_table)
+freq_table <- freq_table[order(freq_table$Var1, decreasing = T),]
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High"))
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9")
+)
+
+p <- ggplot(freq_table, aes(fill=Var1, y=value, x=Var2)) +
+  geom_bar(position="stack", stat="identity", col="black", show.legend = T) +
+  #scale_y_reverse() +
+  theme_bw() +
+  #theme_void() +
+  theme_classic() +
+  theme(#axis.title = element_blank(),
+        text = element_text(size = 8),
+        axis.text.x = element_text(angle = 0, 
+                                   hjust = 0.5,
+                                   vjust = 0.5,
+                                   color = "black"),
+        #axis.ticks.y = element_blank(),
+        #axis.text.y = element_blank(),
+        legend.key.size = unit(0.3, "cm")) +
+  labs(title = "", x="", y="nCells (%)", fill = "Samples") +
+  scale_x_discrete(labels = labels) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_manual(values = myPalette$sampleColor) 
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "sample_proportion.pdf", sep = "/"), width = 3, height = 4, useDingbats = FALSE)
+print(p)
+dev.off()
+
+```
+
+# Gene Expressions
+
+```{r fig.width=12, fig.height=5}
+ DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("ACVRL1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK1 (ACVRL1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8), 
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("ACVR1"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK2 (ACVR1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("BMPR1A"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK3 (BMPR1A)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("ACVR1B"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK4 (ACVR1B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("TGFBR1"),  min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK5 (TGFBR1)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p6 <- FeaturePlot(htap, features = c("BMPR1B"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK6 (BMPR1B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p7 <- FeaturePlot(htap, features = c("ACVR1C"),   max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ALK7 (ACVR1C)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+
+pdf(paste(out.dir, "ALK1", "featureplot_ALK1_7.pdf", sep = "/"), width = 12, height = 5, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,ncol=4)
+dev.off()
+```
+
+```{r fig.width=16, fig.height=2.5}
+
+DefaultAssay(htap) <- "RNA"
+p1 <- FeaturePlot(htap, features = c("BMPR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "BMPRII (BMPR2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("TGFBR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "TGFβRII (TGFBR2)") +
+guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p3 <- FeaturePlot(htap, features = c("ACVR2A"), max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "ActRIIA (ACVR2A)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p4 <- FeaturePlot(htap, features = c("ACVR2B"),  max.cutoff = "q80", cols = c("lightgrey", "blue")) +
+  labs(title = "ActRIIB (ACVR2B)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p5 <- FeaturePlot(htap, features = c("AMHR2"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "lightgrey")) +
+  labs(title = "AMHRII (AMHR2)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2,p3,p4,p5,ncol=5)
+
+pdf(paste(out.dir, "ALK1", "featureplot_BMPR2_AMHR2.pdf", sep = "/"), width = 16, height = 2.5, useDingbats = FALSE)
+grid.arrange(p1,p2,p3,p4,p5,ncol=5)
+dev.off()
+```
+
+
+```{r fig.width=6, fig.height=2.5}
+DefaultAssay(htap) <- "RNA"
+
+p1 <- FeaturePlot(htap, features = c("ENG"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "Endoglin (ENG)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+p2 <- FeaturePlot(htap, features = c("TGFBR3"), min.cutoff = "q10", max.cutoff = "q90", cols = c("lightgrey", "blue")) +
+  labs(title = "Betaglycan (TGFBR3)") +
+  guides(colour = guide_colorbar(title = "Avg.exp")) +
+  theme(axis.title = element_text(size = 8), axis.text = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5, size = 12, face="bold.italic"),
+        legend.text = element_text(size = 8, hjust = 1),
+        legend.title = element_text(size = 8),
+        legend.key.height= unit(0.4, 'cm'),
+        legend.key.width= unit(0.2, 'cm'))
+
+
+grid.arrange(p1,p2, ncol = 2)
+
+pdf(paste(out.dir, "ALK1", "featureplot_ENG_TGFBR3.pdf", sep = "/"), width = 6, height = 2.5, useDingbats = FALSE)
+grid.arrange(p1,p2, ncol = 2)
+dev.off()
+```
+
+
+## Featureplot_KDR..VEGFB
+
+```{r fig.width=12, fig.height=7}
+
+DefaultAssay(htap) <- "RNA"
+p <- feature_plot(x = htap, features = c("KDR","TEK","FLT1","PDGFRB","PDGFB","PGF","ANGPT2","ANGPT1","VEGFA","VEGFB", "FREAC1","FKHL5", "FOXF1"), ncol = 4)
+pdf(paste(out.dir, "ALK1", "featureplot_KDR..VEGFB.pdf", sep = "/"), width = 12, height = 7, useDingbats = FALSE)
+print(p)
+dev.off()
+```
+
+## Box plot KDR..FOXF1 (all clusters)
+
+```{r fig.width=6, fig.height=3}
+
+DefaultAssay(htap) <- "RNA"
+htap <- NormalizeData(htap)
+htap <- SetIdent(htap, value = "ALK1")
+
+as.data.frame.Seurat <- function(x, features = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined_res_table <- data.frame()
+features = c("KDR","TEK","FLT1","PDGFRB","PDGFB","PGF","ANGPT2","ANGPT1","VEGFA","VEGFB", "FOXF1")
+features <- rownames(htap[features,])
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = htap, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined_res_table <- rbind(joined_res_table,dat)
+}
+
+
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9")
+)
+
+
+ggboxplot(joined_res_table,
+          x = "feat", 
+          y = "exp", 
+          xlab = "Genes",
+          ylab = "Expression level", 
+          #add = "mean_se",
+          outlier.shape = NA,
+          fill = "ident",
+          bxp.errorbar = TRUE,
+          bxp.errorbar.width = 0.4) +
+  ylim(c(0,5)) +
+  theme_bw(base_rect_size = 0.2) + 
+  theme(plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90,hjust = 1,vjust = 0.5,color = "black",size = 8),
+        axis.text.y = element_text(size = 8, color = "black"),
+        #panel.grid.major = element_blank(), 
+        #panel.grid.minor = element_blank(),
+        legend.direction ="vertical",
+        legend.position = "right",
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.title=element_text(size=8), 
+        panel.spacing = unit(0, "lines"),
+        #panel.background = element_rect(fill = NA, color = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        #plot.margin = unit(c(0,0,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0)
+  ) +
+  labs(fill = "Cell clusters") +
+  scale_fill_manual(labels = labels,values = c( "#117733","#88CCEE","#DDCC77","#CC6677")) +
+  stat_compare_means(aes(group = ident),
+                     na.rm = TRUE,
+                     #label = "p.format",
+                     label = "p.signif",
+                     hide.ns = FALSE,
+                     method = "anova",
+                     label.y = c(2.6, 1.6, 2.1, 1.1, 3.2, 4.0, 4.2, 1.1, 1.2, 2.1, 1.6),
+                     size = 3)
+
+  ggsave(paste(out.dir, "ALK1", "Boxplot_KDR..VEGFB.pdf", sep = "/"), width = 6, height = 3, useDingbats = FALSE)
+
+
+
+```
+
+## Box plot KDR..FOXF1 (clusters ALK1 High, ALK1 Low)
+
+
+```{r fig.width=5, fig.height=3}
+
+Seurat::Idents(htap) <- "ALK1"
+sub <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+Seurat::DefaultAssay(sub) <- "RNA"
+Seurat::NormalizeData(sub)
+
+as.data.frame.Seurat <- function(x, features = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined_res_table <- data.frame()
+features = c("KDR","TEK","FLT1","PDGFRB","PDGFB","PGF","ANGPT2","ANGPT1","VEGFA","VEGFB", "FOXF1")
+features <- rownames(sub[features,])
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = sub, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined_res_table <- rbind(joined_res_table,dat)
+}
+
+
+#my_comparisons <- list("ALK1 High", "ALK1 High+BMP9","ALK1 Low", "ALK1 Low+BMP9")
+
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High"))
+)
+
+
+ggboxplot(joined_res_table,
+          x = "feat", 
+          y = "exp", 
+          xlab = "Genes",
+          ylab = "Expression level", 
+          #add = "mean_se",
+          outlier.shape = NA,
+          fill = "ident",
+          bxp.errorbar = TRUE,
+          bxp.errorbar.width = 0.4) +
+  theme_bw(base_rect_size = 0.2) + 
+  theme(plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90,hjust = 1,vjust = 0.5,color = "black",size = 8),
+        axis.text.y = element_text(size = 8, color = "black"),
+        #panel.grid.major = element_blank(), 
+        #panel.grid.minor = element_blank(),
+        legend.direction ="vertical",
+        legend.position = "right",
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.title=element_text(size=8), 
+        panel.spacing = unit(0, "lines"),
+        #panel.background = element_rect(fill = NA, color = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0)
+  ) +
+  #labs(title = paste(file_name), fill = "Groups") +
+  labs(fill = "Cell clusters") +
+  scale_fill_manual(labels = labels, values = c("#117733","#88CCEE")) +
+  stat_compare_means(aes(group = ident),
+                     na.rm = TRUE,
+                     #label = "p.format",
+                     label = "p.signif",
+                     hide.ns = FALSE,
+                     method = "wilcox.test",
+                     label.y = c(2.5, 1.6, 1.6, 1.2, 2.4, 3.7, 4.1, 0.9, 1.2, 2.1, 1.5),
+                     size = 3)
+
+  ggsave(paste(out.dir, "ALK1", "Boxplot_KDR..VEGFB_ALK1_high_low.pdf", sep = "/"), width = 5, height = 3, useDingbats = FALSE)
+
+
+```
+
+
+
+# Boxplot expression of type 1, 2, 3 receptors
+
+## All ALK1 clusters
+
+```{r}
+
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined_res_table <- data.frame()
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+
+features = c(type1, type2, type3)
+features <- rownames(htap[features,])
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = htap, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined_res_table <- rbind(joined_res_table,dat)
+}
+
+
+
+# Receptor expression by condition
+# DefaultAssay(htap) <- "RNA"
+# htap <- NormalizeData(htap)
+# htap <- SetIdent(htap, value = "ALK1")
+
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            expression("PMECs ALK1"^italic("High")*"+"*"BMP9")
+)
+
+
+g1 <- ggboxplot(joined_res_table,
+                x = "feat", 
+                y = "exp", 
+                #color = "Feat", 
+                #palette = dittoColors(),
+                #add = "jitter",
+                xlab = "Receptors",
+                ylab = "Expression level",
+                width = 0.8,
+                notch = FALSE,
+                outlier.shape = NA,
+                fill = "ident",
+                bxp.errorbar = TRUE,
+                bxp.errorbar.width = 0.8
+)+
+  theme_bw(base_rect_size = 0.2) + 
+  #scale_y_continuous(position="left") +
+  #facet_grid(rows = vars(ident), scales = "free", switch = "x") +
+  #scale_fill_manual(values = c('#b34e36','#B95FBB',  '#006d2c', '#6973e8')) +
+  scale_fill_manual(labels = labels,values = c( "#117733","#88CCEE","#DDCC77","#CC6677")) +
+  theme(legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.title=element_text(size=8), 
+        legend.text=element_text(size=7),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        axis.title.y = element_text(size = 8),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold")) +
+  labs(title = " ", fill = "Cell clusters") +
+  stat_compare_means(aes(group = ident),  
+                       na.rm = TRUE,
+                       #label = "p.format",
+                       label = "p.signif",
+                       hide.ns = FALSE,
+                       method = "anova",
+                     label.y = c(1.9, 1.2, 1.2, 2.8, 1.0, 1.0, 1.1, 1.2, 1.2, 3.4, 3.1, 3.3, 1.3, 1.4),
+                       size = 4)
+
+
+
+
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  # TODO possibly also a warning if it is not a variable gene and an error
+  # if it does not exist also an argument to force though the error ...
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = htap, 
+                        genes = c(type1, type2, type3), 
+                        fix_names = TRUE)
+df$cell <- rownames(df)
+
+# Use melt to change data.frame format
+df <- reshape2::melt(df, 
+                     id.vars = c("cell","ident"), 
+                     measure.vars = c(type1, type2, type3), 
+                     variable.name = "feat", 
+                     value.name = "exp")
+
+dt <- data.frame(x = levels(df$feat), 
+                 group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), 
+                 stringsAsFactors = FALSE)
+
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  geom_tile() + theme_bw() +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(
+    label.position = "right",
+    title = "Receptors",
+    # title.theme = element_blank(), 
+    keyheight = 0.5, 
+    nrow = 3)) +
+  theme(#legend.position = "right", 
+        legend.position = c(1.055, 4.5),
+        legend.justification = "left",
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.margin = margin(0,0,0,0), 
+        legend.box.margin = margin(-10,05,0,0),
+        legend.title=element_text(size=8), 
+        legend.text=element_text(size=7),
+        panel.spacing = unit(0, "lines"),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90, 
+                                   hjust = 1,
+                                   vjust = 1,
+                                   size = 8,
+                                   color = "black"),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) + xlab("")
+
+
+
+
+# Use patchwork to join plots
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+pdf(paste(out.dir, "ALK1", "boxplot_receptors.pdf", sep = "/"), width = 7, height = 3.5, useDingbats = FALSE)
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+dev.off()
+
+```
+
+## ALK1 high and ALK1 low clusters
+
+
+```{r}
+#htap <- readRDS("/data/data_mbouamboua/projects/10x.pah.bmp9/outs/rds/htap_5_clusters_without_cycling.rds")
+#DimPlot(htap, group.by = "ALK1")
+Seurat::Idents(htap) <- "ALK1"
+#htap <- subset(htap, idents = c("ALK1 High", "ALK1 Low"))
+#Seurat::DefaultAssay(htap) <- "SCT"
+DefaultAssay(htap) <- "RNA"
+Seurat::NormalizeData(htap)
+
+
+as.data.frame.Seurat <- function(x, features, fix_names = TRUE, ...) {
+  tmp <- Seurat::FetchData(x, vars = features, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+joined_res_table <- data.frame()
+type1 <- c("ACVR1", "ACVR1B", "ACVR1C",  "ACVRL1", "BMPR1A", "BMPR1B", "TGFBR1")
+type2 <- c("ACVR2A", "ACVR2B", "BMPR2", "TGFBR2")
+type3 <- c("ENG", "TGFBR3")
+
+features = c(type1, type2, type3)
+features <- rownames(htap[features,])
+
+for(i in 1:length(features)){
+  print(features[i])
+  dat <- as.data.frame.Seurat(x = htap, features = features[i],  fix_names = TRUE)
+  colnames(dat) <- c("exp","ident")
+  dat <- dat %>% group_by(exp,ident) %>% tally() %>% mutate(freq = n/sum(n))
+  dat$feat <-  replicate(nrow(dat),paste(features[i]))
+  rownames(dat) <- c()
+  joined_res_table <- rbind(joined_res_table,dat)
+}
+
+
+
+# Receptor expression by condition
+# DefaultAssay(htap) <- "RNA"
+# htap <- NormalizeData(htap)
+# htap <- SetIdent(htap, value = "ALK1")
+
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High"))
+            )
+
+
+g1 <- ggboxplot(joined_res_table,
+                x = "feat", 
+                y = "exp", 
+                #color = "Feat", 
+                #palette = dittoColors(),
+                #add = "jitter",
+                xlab = "Receptors",
+                ylab = "Expression level",
+                width = 0.8,
+                notch = FALSE,
+                outlier.shape = NA,
+                fill = "ident",
+                bxp.errorbar = TRUE,
+                bxp.errorbar.width = 0.8
+)+
+  theme_bw(base_rect_size = 0.2) + 
+  #scale_y_continuous(position="left") +
+  #facet_grid(rows = vars(ident), scales = "free", switch = "x") +
+  #scale_fill_manual(values = c('#b34e36','#B95FBB',  '#006d2c', '#6973e8')) +
+  scale_fill_manual(labels = labels, values = c("#117733","#88CCEE")) +
+  theme(legend.position = "right", 
+        legend.justification = "left",
+        legend.text.align = 0,
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.title=element_text(size=8), 
+        legend.text=element_text(size=7),
+        panel.spacing = unit(0, "lines"),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        axis.title.y = element_text(size = 8),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold")) +
+  labs(title = " ", fill = "Cell clusters") +
+  stat_compare_means(aes(group = ident),  
+                       na.rm = TRUE,
+                       #label = "p.format",
+                       label = "p.signif",
+                       hide.ns = FALSE,
+                       method = "wilcox.test",
+                     label.y = c(1.9, 1.8, 1.2, 3.1, 1.2, 1.2, 1.5, 1.5, 1.7, 3.0, 3.6, 3.2, 1.9),
+                       size = 4)
+
+
+
+
+asDataframeSeurat <- function(x, genes = Seurat::VariableFeatures(x), fix_names = TRUE, ...) {
+  # TODO possibly also a warning if it is not a variable gene and an error
+  # if it does not exist also an argument to force though the error ...
+  tmp <- Seurat::FetchData(x, vars = genes, ...)
+  tmp <-  as.data.frame(tmp, stringsAsFactors = FALSE)
+  tmp$ident <- Seurat::Idents(x)[rownames(tmp)]
+  
+  if (fix_names) {
+    colnames(tmp) <- make.names(colnames(tmp))
+  }
+  return(tmp)
+}
+
+df <- asDataframeSeurat(x = htap, 
+                        genes = c(type1, type2, type3), 
+                        fix_names = TRUE)
+df$cell <- rownames(df)
+
+# Use melt to change data.frame format
+df <- reshape2::melt(df, 
+                     id.vars = c("cell","ident"), 
+                     measure.vars = c(type1, type2, type3), 
+                     variable.name = "feat", 
+                     value.name = "exp")
+
+dt <- data.frame(x = levels(df$feat), 
+                 group = c(rep("Type 1", 7), rep("Type 2", 4), rep("Type 3", 2)), 
+                 stringsAsFactors = FALSE)
+
+dt$x <- factor(dt$x, levels = levels(df$feat))
+dt$group <- factor(dt$group)
+
+g2 <- ggplot(dt, aes(x = x, y = 1, fill = group)) + 
+  geom_tile() + theme_bw() +
+  scale_fill_manual(values = c("SlateBlue", "#4e6c6c", "#896135")) + 
+  scale_y_continuous(expand = c(0, 0)) +
+  guides(fill = guide_legend(
+    label.position = "right",
+    title = "Receptors",
+    # title.theme = element_blank(), 
+    keyheight = 0.5, 
+    nrow = 3)) +
+  theme(#legend.position = "right", 
+        legend.position = c(1.055, 4.5),
+        legend.justification = "left",
+        legend.spacing = unit(12, "cm"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.margin = margin(0,0,0,0), 
+        legend.box.margin = margin(-10,05,0,0),
+        legend.title=element_text(size=8), 
+        legend.text=element_text(size=7),
+        panel.spacing = unit(0, "lines"),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(0,0,0,0), "cm"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90, 
+                                   hjust = 1,
+                                   vjust = 1,
+                                   size = 8,
+                                   color = "black"),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank()) + xlab("")
+```
+
+
+```{r fig.width=6, fig.height=3.5}
+# Use patchwork to join plots
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+
+pdf(paste("boxplot_receptors.pdf", sep = "/"), width = 6, height = 3.5, useDingbats = FALSE)
+g1 + g2 + patchwork::plot_layout(ncol = 1, heights = c(0.95, 0.05))
+dev.off()
+
+```
+
+
+
+# DE analysis
+## Clean data
+
+```{r}
+# Remove Sexual Sex‐Determining Genes
+sexual.genes <- read.csv("/data/data_mbouamboua/ref.markers/genes.table.csv")
+chrY.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "Y"]
+#chrX.gene = sexual.genes$external_gene_name[sexual.genes$chromosome_name == "X"]
+# Remove Sexual Sex‐Determining Genes
+clean <- htap[!grepl("XIST|RPS4Y1|AC006157.1|ZFY|ZFY-AS1|LINC00278|PCDH11Y|USP9Y|DDX3Y|UTY|TMSB4Y|TTTY14|AC010889.1|KDM5D|      EIF1AY|RPS4Y2", rownames(htap)), ]
+# Remove MT, HB, Ribo genes
+clean <- clean[!grepl("^MT-|^MTRNR|^RP[LS][[:digit:]]", rownames(clean)), ]
+rm(htap)
+
+DefaultAssay(clean) <- "RNA"
+clean <- NormalizeData(clean)
+saveRDS(clean, paste(out.dir, "rds", "clean.rds", sep = "/"))
+```
+
+
+## DE ALK1 CTRL
+
+```{r}
+res.dir <- paste(work.dir, "outs", "markers", "DE", sep = "/")
+Seurat::Idents(clean) <- "clusters"
+htap5 <- subset(clean, idents = c("C1", "C2", "C3", "C4", "C5"), invert = F)
+Seurat::Idents(htap5) <- "condition"
+htap5 <- subset(htap5, idents = "CTRL", invert = F)
+Seurat::DefaultAssay(htap5) <- "RNA"
+htap5 <- Seurat::NormalizeData(htap5)
+Seurat::Idents(htap5) <- "ALK1"
+de_genes <- Seurat::FindAllMarkers(htap5, only.positif = F)
+write.table(de_genes,file=paste(res.dir, "/", "DE_ALK1_Low_High.tsv",sep=""),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
+
+
+```
+
+### Dotplot
+
+
+```{r warning=FALSE, fig.width=2.5, fig.height=16}
+de_genes <- read.delim(paste(res.dir,"DE_ALK1_Low_High.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[de_genes$avg_log2FC > 0,]
+top = de_genes %>% dplyr::group_by(cluster) %>% do(head(., n=50))
+
+#kable(head(neg_markers,10))
+markers_50 <- head(de_genes,100)
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("High"))
+)
+
+p <- DotPlot(object = htap5, assay = "RNA", features=unique(top$gene), dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(low ="#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+pdf(paste(out.dir, "ALK1", "dotplot_DE_ALK1_Low_High.pdf", sep = "/"), width = 2.5, height = 15, useDingbats = FALSE)
+print(p)
+dev.off()
+
+```
+
+
+
+
+## ALK1 Low+BMP9 vs ALK1 Low
+
+```{r}
+res.dir <- paste(out.dir, "markers", "DE", sep = "/")
+test.use = "wilcox"
+Idents(clean) <- "ALK1"
+de_genes <- FindMarkers(clean, ident.1 = "ALK1 Low+BMP9", ident.2 = "ALK1 Low", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.Low.BMP9_vs_ALK1.Low", nrow(de_genes))
+write.table(de_genes,file=paste(res.dir, "/",  "ALK1.Low.BMP9_vs_ALK1.Low_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+### Dotplot
+
+```{r warning=FALSE, fig.width=2.5, fig.height=13}
+de_genes <- read.delim(paste(res.dir, "ALK1.Low.BMP9_vs_ALK1.Low_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[order(de_genes$p_val_adj <= 0.05),] 
+head(de_genes,10)
+markers_100 <- head(de_genes,100)
+
+labels <- c(expression("PMECs ALK1"^italic("Low")),
+            expression("PMECs ALK1"^italic("Low")*"+BMP9")
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9")
+)
+
+p <- DotPlot(object = clean, 
+        assay = "RNA", 
+        features = rownames(head(markers_100[order(markers_100$avg_log2FC, decreasing = T),],100)), 
+        idents = c("ALK1 Low+BMP9", "ALK1 Low"), 
+        dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(low ="#0570b0", mid = "white", low ="#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot.DE.ALK1.Low.BMP9.vs.ALK1.Low.pdf", sep = "/"), width = 2.5, height = 13, useDingbats = F)
+print(p)
+dev.off()
+```
+
+
+
+
+
+## ALK1 High+BMP9 vs ALK1 High
+
+```{r}
+res.dir <- paste(out.dir, "markers", "DE", sep = "/")
+test.use = "wilcox"
+Idents(clean) <- "ALK1"
+de_genes <- FindMarkers(clean, ident.1 = "ALK1 High+BMP9", ident.2 = "ALK1 High", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+de_genes$gene <- rownames(de_genes)
+de_genes$analyse <- rep("ALK1.High.BMP9_vs_ALK1.High", nrow(de_genes))
+write.table(de_genes,file=paste(res.dir, "/",  "ALK1.High.BMP9_vs_ALK1.High_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+### Dotplot
+
+```{r warning=FALSE, fig.width=2.5, fig.height=13}
+de_genes <- read.delim(paste(res.dir, "ALK1.High.BMP9_vs_ALK1.High_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+de_genes <- de_genes[order(de_genes$p_val_adj <= 0.05),] 
+head(de_genes,10)
+markers_100 <- head(de_genes,100)
+
+labels <- c(expression("PMECs ALK1"^italic("High")),
+            expression("PMECs ALK1"^italic("High")*"+BMP9")
+            #expression("PMECs ALK1"^italic("High")*"+"*"BMP9"),
+            #expression("PMECs ALK1"^italic("Low")*"+"*"BMP9")
+)
+
+p <- DotPlot(object = clean, 
+        assay = "RNA", 
+        features = rownames(head(markers_100[order(markers_100$avg_log2FC, decreasing = T),],100)), 
+        idents = c("ALK1 High+BMP9", "ALK1 High"), 
+        dot.scale = 4) +
+  theme_bw(base_line_size = 0) + 
+  #theme_classic() +
+  labs(title = "", y = "Cells", x = "Genes") +
+  coord_flip() +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_y_discrete(labels = labels, position = "right") +
+  #scale_colour_gradient2(low ="#0570b0", mid = "white", high = "#d7301f") +
+  theme(axis.title = element_blank(),
+        text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, 
+                                   hjust = 0,
+                                   vjust = 0.2,
+                                   color = "black"),
+        axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  guides(colour = guide_colorbar(title = "avg.exp", 
+                                 order = 1), 
+         size = guide_legend(title = "%cell.exp", 
+                             order = 2)) 
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot.DE.ALK1.High.BMP9.vs.ALK1.High.pdf", sep = "/"), width = 2.5, height = 13, useDingbats = F)
+print(p)
+dev.off()
+```
+
+
+
+# GSEA 
+
+## GSE ALK1 Low
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+invisible(gc())
+markers <- read.delim(paste(out.dir, "markers", "DE", "DE_ALK1_Low_High.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers, cluster == "ALK1 Low")
+markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "GSE_ALK1_Low.rds", sep = "/"))
+gse_ALK1 <- data.frame(gse@result)
+gse_ALK1$analyse <- rep("ALK1 Low", nrow(gse_ALK1))
+write.table(gse_ALK1,file=paste(res.dir,"Res_GSE_ALK1_Low.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+
+### Dotplot  
+
+```{r fig.width=8.5, fig.height=12}
+# GEO_BP <- readxl::read_excel(paste(out.dir,  "gse", "GEO_BP.xlsx", sep = "/"))
+# #View(GEO_BP)
+# tmp <- subset(GEO_BP, analyse == "ALK1 Low")
+gse <- readRDS(paste(out.dir, "gse", "GSE_ALK1_Low.rds", sep = "/"))
+# gse <- filter(gse, Description %in% tmp$Description)
+
+p <- clusterProfiler::dotplot(gse, 
+                              showCategory = 50, 
+                              x = "GeneRatio") +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+    scale_size_continuous(range=c(2, 8))+
+    #scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f")
+ggtitle("Top 50 GO BP terms - ALK1 Low")
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot_GEO_BP_ALK1_Low.pdf", sep = "/"), width = 8, height = 10, useDingbats = F)
+print(p)
+dev.off()
+```
+
+### Score and preranked 
+
+```{r}
+
+gse@result$Description <- factor(gsub("/", " or ", gse@result$Description))
+nb <- nrow(gse@result)
+for(i in 1:nb){
+p <- enrichplot::gseaplot2(gse, 
+                           geneSetID = i, 
+                           base_size = 6,
+                           title = gse@result$Description[[i]])
+print(p)
+pdf(paste(out.dir, "/ALK1/score_preranked_ALK1_Low/", gse@result$Description[[i]], ".pdf", sep = ""), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+}
+
+
+```
+
+
+
+
+## GSE ALK1 High
+
+```{r}
+invisible(gc())
+markers <- read.delim(paste(out.dir, "markers", "DE", "DE_ALK1_Low_High.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers,cluster == "ALK1 High")
+#markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(out.dir, "gse", "GSE_ALK1.High.rds", sep = "/"))
+GSE_ALK1 <- data.frame(gse@result)
+GSE_ALK1$analyse <- rep("ALK1 High", nrow(GSE_ALK1))
+write.table(GSE_ALK1,file=paste(out.dir, "gse", "Res_GSE_ALK1.High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+### Dotplot 
+
+```{r fig.width=8, fig.height=12}
+# GEO_BP <- readxl::read_excel(paste(out.dir,  "gse", "GEO_BP.xlsx", sep = "/"))
+# tmp <- subset(GEO_BP, analyse == "ALK1 High")
+# rownames(tmp) <- tmp$ID
+gse <- readRDS(paste(out.dir,  "gse", "GSE_ALK1.High.rds", sep = "/"))
+# gse <- filter(gse, ID %in% rownames(tmp))
+
+
+p <- clusterProfiler::dotplot(gse, 
+                              showCategory = 50, 
+                              x = "GeneRatio") +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+      scale_size_continuous(range=c(2, 8))+
+    #scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+ggtitle("Top 50 GO BP terms - ALK1 High")
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot_GEO_BP_ALK1.High.pdf", sep = "/"), width = 8, height = 12, useDingbats = F)
+print(p)
+dev.off()
+```
+
+### DotPlot of interest GO terms
+
+```{r fig.width=4.5, fig.height=2.5}
+## https://github.com/YuLab-SMU/DOSE/issues/20
+## https://github.com/ctlab/fgsea
+
+markers <- read.delim(paste(out.dir, "markers", "DE", "DE_ALK1_Low_High.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers,cluster == "ALK1 High")
+markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+## count the gene number
+gene_count <- gse@result %>% group_by(ID) %>% summarise(count = sum(str_count(core_enrichment, "/")) + 1)
+## merge with the original dataframe
+dot_df<- left_join(gse@result, gene_count, by = "ID") %>% mutate(GeneRatio = count/setSize)
+dot_df_sub <- subset(dot_df, Description %in% terms)
+write.table(dot_df_sub,file=paste(out.dir, "gse","ALK1_High_GO_terms.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+## plot
+p <- ggplot(dot_df_sub, 
+       aes(x = GeneRatio, 
+           y = forcats::fct_reorder(Description, GeneRatio))) + 
+  geom_point(aes(size = GeneRatio, color = p.adjust)) +
+  theme_bw() +
+  theme(axis.text.y = element_text(color = "black", size = 8),
+        axis.text.x = element_text(color = "black", size = 8),
+        axis.title = element_text(color = "black", size = 8),
+        legend.text = ggplot2::element_text(size=8),
+        legend.title = element_text(size = 8),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+      ggplot2::guides(color = guide_legend(override.aes = list(size = 3))) +
+      scale_size_continuous(range=c(2, 6))+
+  #scale_colour_gradient(limits=c(0, 0.10), low="red") +
+  scale_colour_gradient2(low ="#d7301f", mid = "#d7301f", high = "#0570b0") +
+  ylab(NULL)
+
+pdf(paste(out.dir, "ALK1", "dotplot_sig_GEO_BP_ALK1.High.pdf", sep = "/"), width = 4.5, height = 2.5, useDingbats = F)
+print(p)
+dev.off()
+
+gsea_sub <- dplyr::filter(gse, Description %in% terms)
+
+clusterProfiler::dotplot(gsea_sub, 
+                              showCategory = 10, 
+                              x = "GeneRatio") +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+      scale_size_continuous(range=c(2, 8))+
+    #scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+ggtitle("Top 50 GO BP terms - ALK1 High") + 
+
+
+
+  dotplot_sub <- function(gsea, terms){
+    
+    require(DOSE)
+    require(enrichplot)
+    require(dplyr)
+    require(clusterProfiler)
+    require(ggplot2)
+    
+    terms <- dplyr::filter(gsea@result, Description %in% terms) %>% pull(Description)
+    gsea_sub <- dplyr::filter(gse, Description %in% terms)
+    
+    plot <- clusterProfiler::dotplot(gsea_sub, x = "GeneRatio") +
+      theme_bw() +
+      theme(axis.text.y = element_text(color = "black", size = 8),
+            axis.text.x = element_text(color = "black", size = 8),
+            axis.title = element_text(color = "black", size = 8),
+            legend.text = ggplot2::element_text(size=8),
+            legend.title = element_text(size = 8),
+            legend.key.height = unit(0.3, 'cm'),
+            legend.key.width = unit(0.3, 'cm')) +
+      ggplot2::guides(color = guide_legend(override.aes = list(size = 3))) +
+      scale_size_continuous(range=c(2, 6))+
+      #scale_colour_gradient(limits=c(0, 0.10), low="red") +
+      scale_colour_gradient2(low ="#d7301f", mid = "#d7301f", high = "#0570b0") +
+      ylab(NULL)
+    return(plot)
+  }
+
+
+
+```
+
+### Heatplot of interest GO terms
+
+```{r fig.width=2, fig.height=10}
+
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "cell migration", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+
+gsea_sub <- dplyr::filter(gse, Description %in% terms)
+
+enrichplot::heatplot(gsea_sub, foldChange=geneList) +
+  theme_bw() +
+  theme(axis.text.x =  element_text(angle = 45, size = 7, hjust = 1, vjust = 1, colour = "black"),
+        axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+        axis.title = element_text(size = 10, colour = "black"),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        legend.text = ggplot2::element_text(size=7),
+        legend.title = element_text(size = 7),
+        legend.key.height = unit(0.2, 'cm'),
+        legend.key.width = unit(0.4, 'cm'),
+        legend.position = "top") +
+  coord_flip() +
+#  viridis::scale_fill_viridis(option="E")
+scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Fold change", type = "gradient") 
+
+ggsave(paste(out.dir, "ALK1", "heatplot_sig_GO.pdf", sep = "/"), width = 2, height = 10, useDingbats = FALSE)
+
+heatplot_sub <- function(gsea, terms, gene.list){
+
+  require(DOSE)
+  require(enrichplot)
+  require(dplyr)
+  require(clusterProfiler)
+  require(ggplot2)
+  
+  if ( any( duplicated(names(gene.list)) )  ) {
+    warning("Duplicates in gene names")
+    gene.list = gene.list[!duplicated(names(gene.list))]
+  }
+  if  ( !all( order(gene.list, decreasing = TRUE) == 1:length(gene.list)) ){
+    warning("Gene list not sorted")
+    gene.list = sort(gene.list, decreasing = TRUE)
+  }
+  
+  terms <- dplyr::filter(gsea@result, Description %in% terms) %>% pull(Description)
+  gsea_sub <- dplyr::filter(gsea, Description %in% terms)
+  
+  plot <- enrichplot::heatplot(gsea_sub, foldChange = gene.list) +
+    theme_bw() +
+    theme(axis.text.x =  element_text(angle = 45, size = 7, hjust = 1, vjust = 1, colour = "black"),
+          axis.text.y = element_text(angle = 0, size = 6, color = "black"),
+          axis.title = element_text(size = 10, colour = "black"),
+          plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+          legend.text = ggplot2::element_text(size=7),
+          legend.title = element_text(size = 7),
+          legend.key.height = unit(0.2, 'cm'),
+          legend.key.width = unit(0.4, 'cm'),
+          legend.position = "top") +
+    coord_flip() +
+    #  viridis::scale_fill_viridis(option="E")
+    scale_fill_continuous(low ="#0570b0", high = "#d7301f", name = "Fold change", type = "gradient") 
+  
+  return(plot)
+}
+
+
+heatplot_sub(gsea = gse, terms = terms, gene.list = geneList)
+
+```
+
+
+
+### Score and preranked 
+
+```{r}
+gse <- readRDS(paste(out.dir,  "gse", "GSE_ALK1.High.rds", sep = "/"))
+gse@result$Description <- factor(gsub("/", " or ", gse@result$Description))
+
+terms <- c("sprouting angiogenesis", "regulation of angiogenesis", "endothelial cell migration", "angiogenesis", "cell motility", "tube development", "regulation of cell migration", "regulation of cell motility", "endothelial cell proliferation")
+## count the gene number
+gene_count <- gse@result %>% group_by(ID) %>% summarise(count = sum(str_count(core_enrichment, "/")) + 1)
+## merge with the original dataframe
+dot_df<- left_join(gse@result, gene_count, by = "ID") %>% mutate(GeneRatio = count/setSize)
+dot_df_sub <- subset(dot_df, Description %in% terms)
+
+
+nb <- length(gse@result$ID)
+for(i in 1:nb){
+p <- enrichplot::gseaplot2(gse, 
+                           geneSetID = i, 
+                           base_size = 8,
+                           title = gse@result$Description[[i]]) +
+  theme(axis.text.y = element_text(color = "black", size = 8),
+        axis.text.x = element_text(color = "black", size = 8),
+        axis.title = element_text(color = "black", size = 8))
+
+print(p)
+pdf(paste(out.dir, "/ALK1/test/", gse@result$Description[[i]], ".pdf", sep = ""), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+}
+
+```
+
+
+
+
+## fgsea
+
+```{r}
+GO_file = "/data/data_mbouamboua/hallmark/c5.bp.v7.0.symbols.gmt"
+
+myGO = fgsea::gmtPathways(GO_file)
+
+  fgRes <- fgsea::fgsea(pathways = myGO, 
+                           stats = geneList,
+                           minSize=3,
+                           maxSize=600)
+  
+  pvam <- 0.05
+  fgRes <- as.data.frame(fgRes) %>% dplyr::filter(pval <= 0.05)
+  print(dim(fgRes))
+
+
+  ## Filter FGSEA by using gage results. Must be significant and in same direction to keep 
+  gaRes = gage::gage(gene.list = geneList, gsets=myGO, same.dir=TRUE, set.size =c(15,600))
+
+  ups = as.data.frame(gaRes$greater) %>% 
+    tibble::rownames_to_column("Pathway") %>% 
+    dplyr::filter(!is.na(p.geomean) & q.val < pval ) %>%
+    dplyr::select("Pathway")
+
+  downs = as.data.frame(gaRes$less) %>% 
+    tibble::rownames_to_column("Pathway") %>% 
+    dplyr::filter(!is.na(p.geomean) & q.val < pval ) %>%
+    dplyr::select("Pathway")
+
+  print(dim(rbind(ups,downs)))
+  ## Define up / down pathways which are significant in both tests
+  keepups = fgRes[fgRes$NES > 0 & !is.na(match(fgRes$pathway, ups$Pathway)), ]
+  keepdowns = fgRes[fgRes$NES < 0 & !is.na(match(fgRes$pathway, downs$Pathway)), ]
+  
+  
+```
+
+
+```{r}
+
+GSEA = function(gene.list, GO_file, pval) {
+  set.seed(54321)
+  library(dplyr)
+  library(gage)
+  library(fgsea)
+
+  if ( any( duplicated(names(gene.list)) )  ) {
+    warning("Duplicates in gene names")
+    gene.list = gene.list[!duplicated(names(gene.list))]
+  }
+  if  ( !all( order(gene.list, decreasing = TRUE) == 1:length(gene.list)) ){
+    warning("Gene list not sorted")
+    gene.list = sort(gene.list, decreasing = TRUE)
+  }
+  myGO = fgsea::gmtPathways(GO_file)
+
+  fgRes <- fgsea::fgsea(pathways = myGO, 
+                           stats = gene.list,
+                           minSize=15,
+                           maxSize=600
+                           #nperm=10000
+                        ) %>% 
+                  as.data.frame() %>% 
+                  dplyr::filter(pval <= 0.05)
+  print(dim(fgRes))
+
+## Filter FGSEA by using gage results. Must be significant and in same direction to keep 
+  gaRes = gage::gage(gene.list, gsets=myGO, same.dir=TRUE, set.size =c(15,600))
+
+  ups = as.data.frame(gaRes$greater) %>% 
+    tibble::rownames_to_column("Pathway") %>% 
+    dplyr::filter(!is.na(p.geomean) & q.val < pval ) %>%
+    dplyr::select("Pathway")
+
+  downs = as.data.frame(gaRes$less) %>% 
+    tibble::rownames_to_column("Pathway") %>% 
+    dplyr::filter(!is.na(p.geomean) & q.val < pval ) %>%
+    dplyr::select("Pathway")
+
+  print(dim(rbind(ups,downs)))
+  ## Define up / down pathways which are significant in both tests
+  keepups = fgRes[fgRes$NES > 0 & !is.na(match(fgRes$pathway, ups$Pathway)), ]
+  keepdowns = fgRes[fgRes$NES < 0 & !is.na(match(fgRes$pathway, downs$Pathway)), ]
+
+  fgRes = fgRes[ !is.na(match(fgRes$pathway, 
+           c( keepups$pathway, keepdowns$pathway))), ] %>% 
+    arrange(desc(NES))
+  fgRes$pathway = stringr::str_replace(fgRes$pathway, "GO_" , "")
+
+  fgRes$Enrichment = ifelse(fgRes$NES > 0, "Up-regulated", "Down-regulated")
+  filtRes = rbind(head(fgRes, n = 10),
+                  tail(fgRes, n = 10 ))
+
+
+# upcols =  colorRampPalette(colors = c("red4", "red1", "lightpink"))( sum(filtRes$Enrichment == "Up-regulated"))
+# downcols =  colorRampPalette(colors = c( "lightblue", "blue1", "blue4"))( sum(filtRes$Enrichment == "Down-regulated"))
+# colos = c(upcols, downcols)
+# names(colos) = 1:length(colos)
+filtRes$Index = as.factor(1:nrow(filtRes))
+
+g = ggplot(filtRes, aes(reorder(pathway, NES), NES)) +
+  geom_col( aes(fill = Index )) +
+  #scale_fill_manual(values = colos ) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="GSEA - Biological Processes") + 
+  theme_minimal() + th
+
+
+  output = list("Results" = fgRes, "Plot" = g)
+  return(output)
+}
+
+
+
+
+markers <- read.delim(paste(out.dir, "markers", "DE", "DE_ALK1_Low_High.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers,cluster == "ALK1 High")
+#markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList <- na.omit(geneList)
+geneList <- sort(geneList, decreasing = TRUE)
+head(geneList)
+
+GO_file = "/data/data_mbouamboua/hallmark/c5.bp.v7.0.symbols.gmt"
+
+res = GSEA(gene.list = geneList, GO_file = GO_file, pval = 0.05)
+
+```
+
+
+
+### GSE ALK1 Low+BMP9 vs ALK1 Low
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+invisible(gc())
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+markers <- read.delim(paste(out.dir, "markers", "DE", "ALK1.Low.BMP9_vs_ALK1.Low_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "GSE_ALK1_Low_BMP9_vs_ALK1_Low.rds", sep = "/"))
+gse_ALK1 <- data.frame(gse@result)
+gse_ALK1$analyse <- rep("ALK1 Low+BMP9 vs ALK1 Low", nrow(gse_ALK1))
+write.table(gse_ALK1,file=paste(res.dir,"Res_GSE_ALK1_Low_BMP9_vs_ALK1_Low.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+####  Dotplot  
+
+```{r fig.width=8, fig.height=12}
+
+# GEO_BP <- readxl::read_excel(paste(out.dir, "gse", "GEO_BP.xlsx", sep = "/"))
+# tmp <- subset(GEO_BP, analyse == "ALK1 Low+BMP9 vs ALK1 Low")
+gse <- readRDS(paste(out.dir, "gse", "GSE_ALK1_Low_BMP9_vs_ALK1_Low.rds", sep = "/"))
+# gse <- filter(gse, Description %in% tmp$Description)
+
+
+p <- clusterProfiler::dotplot(gse, 
+                              showCategory = 50, 
+                              x = "GeneRatio") +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  #scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8)) +
+  ggtitle("Top 50 GO BP terms \n ALK1 Low+BMP9 vs ALK1 Low")
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot_GEO_BP_ALK1_Low_BMP9_vs_ALK1_Low.pdf", sep = "/"), width = 8, height = 12, useDingbats = F)
+print(p)
+dev.off()
+```
+
+
+#### Score and preranked 
+
+```{r}
+gse@result$Description <- factor(gsub("/", " or ", gse@result$Description))
+nb <- nrow(gse@result)
+for(i in 1:nb){
+p <- enrichplot::gseaplot2(gse, 
+                           geneSetID = i, 
+                           base_size = 6,
+                           title = gse@result$Description[[i]])
+print(p)
+pdf(paste(out.dir, "/ALK1/score_preranked_ALK1_Low_BMP9_vs_ALK1_Low/", gse@result$Description[[i]], ".pdf", sep = ""), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+}
+
+```
+
+
+
+
+
+
+### GSE ALK1 High+BMP9 vs ALK1 High
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, eval=T, fig.height=10, fig.width=8}
+invisible(gc())
+res.dir <- paste(work.dir, "outs", "gse", sep = "/")
+markers <- read.delim(paste(out.dir, "markers", "DE", "ALK1.High.BMP9_vs_ALK1.High_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+markers <- subset(markers, avg_log2FC > 0)
+geneList <- markers$avg_log2FC
+names(geneList) <- markers$gene
+geneList<-na.omit(geneList)
+geneList = sort(geneList, decreasing = TRUE)
+#keytypes(org.Hs.eg.db)
+gse <- gseGO(geneList=geneList, 
+             ont = "BP", 
+             keyType = "SYMBOL", 
+             #nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             OrgDb = org.Hs.eg.db, 
+             pAdjustMethod = "none")
+
+saveRDS(gse, paste(res.dir, "GSE_ALK1_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+gse_ALK1 <- data.frame(gse@result)
+gse_ALK1$analyse <- rep("ALK1 High+BMP9 vs ALK1 High", nrow(gse_ALK1))
+write.table(gse_ALK1,file=paste(res.dir,"Res_GSE_ALK1_High_BMP9_vs_ALK1_High.tsv",sep="/"),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+```
+
+####  Dotplot  
+
+```{r fig.width=8, fig.height=12}
+
+# GEO_BP <- readxl::read_excel(paste(out.dir, "gse", "GEO_BP.xlsx", sep = "/"))
+# tmp <- subset(GEO_BP, analyse == "ALK1 High+BMP9 vs ALK1 High")
+#gse <- readRDS(paste(out.dir, "gse", "GSE_ALK1_High_BMP9_vs_ALK1_High.rds", sep = "/"))
+# gse <- filter(gse, Description %in% tmp$Description)
+
+
+p <- clusterProfiler::dotplot(gse, 
+                              showCategory = 50, 
+                              x = "GeneRatio") +
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  geom_point(shape = 21, colour="black", stroke=0.5) +
+  #scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 8)) +
+  ggtitle("Top 50 GO BP terms \n ALK1 High+BMP9 vs ALK1 High")
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "dotplot_GEO_BP_ALK1_High_BMP9_vs_ALK1_High.pdf", sep = "/"), width = 8, height = 12, useDingbats = F)
+print(p)
+dev.off()
+
+```
+
+
+#### Score and preranked 
+
+```{r}
+gse@result$Description <- factor(gsub("/", " or ", gse@result$Description))
+nb <- nrow(gse@result)
+for(i in 1:nb){
+p <- enrichplot::gseaplot2(gse, 
+                           geneSetID = i, 
+                           base_size = 6,
+                           title = gse@result$Description[[i]])
+print(p)
+pdf(paste(out.dir, "/ALK1/score_preranked_ALK1_High_BMP9_vs_ALK1_High/", gse@result$Description[[i]], ".pdf", sep = ""), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+}
+
+```
+
+
+
+
+
+
+# enrichDO
+
+```{r fig.width=5, fig.height=3}
+markers <- read.delim(paste(out.dir, "markers", "DE_ALK1", "DE_ALK1_wilcox.tsv", sep = "/"), header = T, sep = "\t")
+#sub_markers <- subset(markers, cluster = "ALK1 High")
+sub_markers <- sub_markers[sub_markers$p_val_adj <= 0.05,]
+df <- bitr(sub_markers$gene, fromType = "SYMBOL",
+           toType = c("ENSEMBL", "ENTREZID"),
+           OrgDb = org.Hs.eg.db)
+do <- enrichDO(df$ENTREZID)
+do <- mutate(do, geneRatio = parse_ratio(GeneRatio)) %>%
+  arrange(desc(geneRatio)) %>% filter(p.adjust < .05, qvalue < 0.2)
+
+y <- mutate(do, richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+y <- mutate(do, FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio))
+
+
+termes <- c("DOID:3083", "DOID:3770", "DOID:6432", "DOID:3908", "DOID:850", "DOID:3910", "DOID:3082", "DOID:5409", "DOID:3907", "DOID:4971", "DOID:2349", "DOID:2348", "DOID:3393")
+
+sub <- filter(y, ID %in% termes)
+
+p <- ggplot(sub, showCategory = length(y@result$Description), 
+            aes(FoldEnrichment, fct_reorder(Description, FoldEnrichment))) + 
+  geom_segment(aes(xend=0, yend = Description)) +
+  geom_point(aes(color=p.adjust, size = Count)) +
+  #scale_color_viridis_c(guide=guide_colorbar(reverse=TRUE)) +
+  scale_colour_gradient2(low ="#0570b0", mid = "#0570b0", high = "#d7301f") +
+  scale_size_continuous(range=c(2, 6)) +
+  theme_minimal() + 
+  theme(axis.text.y = element_text(color = "black"),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm')) +
+  xlab("Fold Enrichment") +
+  ylab(NULL) 
+
+print(p)
+
+pdf(paste(out.dir, "ALK1", "lolliplot_ALK1_enriched_disease_ontology.pdf", sep = "/"), width = 5, height = 3, useDingbats = F)
+print(p)
+dev.off()
+
+```
+
+
+
+
+
+## DE CTRL vs PAH
+### Seurat Wilcoxon
+```{r}
+res.dir <- paste(out.dir, "markers", "DE_CTRL_vs_PAH", sep = "/")
+test.use = "wilcox"
+## Get vector of clusters to test
+Idents(clean) <- "ALK1"
+clusters <- sort(as.vector(unique(clean@active.ident)))
+clusters
+nb <- length(clusters)
+#nb <- nb -1
+
+for(i in 1:nb){
+  ## print start message
+  #print("Starting differential expression analysis fot", clusters[i])
+  
+  ## Initiate empty data frames and lists for comparisons of clusters
+  joined_res <- data.frame()
+  upset_Rlist_DE_genes <- list()
+  print(clusters[i])
+  Idents(clean) <- "ALK1"
+  sub <- subset(clean, idents = clusters[i])
+  sub <- NormalizeData(sub)
+  
+  ## Perform differential expression test using the Seurat FindMarkers function
+  de_genes <- data.frame()
+  Idents(sub) <- "condition"
+  #sub <- PrepSCTFindMarkers(sub, assay = "SCT", verbose = FALSE)
+  de_genes <- FindMarkers(object = sub, ident.1 = "CTRL", ident.2 = "PAH", only.pos = FALSE, test.use = test.use, assay = "RNA", slot = "data")
+  
+  ## Write table for all differentially expressed genes containing testing results
+  de_genes$cluster <- replicate(nrow(de_genes),clusters[i])
+  de_genes$gene <- rownames(de_genes)
+  de_genes$de_type <- replicate(nrow(de_genes),paste0("ctrl.vs.pah"))
+  de_genes$test.use <- replicate(nrow(de_genes),paste0(test.use))
+  
+  ## Write table for all differentially expressed genes containing testing results
+  write.table(de_genes,file=paste(res.dir,"/", "DE_ctrl.vs.pah_",clusters[i],"_",test.use,".txt",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+  
+  ## Add DE for this cell type to the UpsetR list
+  sig_res <- dplyr::filter(de_genes, p_val_adj < 0.05) %>% dplyr::arrange(p_val_adj)
+  upset_Rlist_DE_genes[[clusters[i]]] <- c(sig_res$gene)
+  saveRDS(upset_Rlist_DE_genes, file=paste(res.dir,"/", clusters[i], "_upset_de_genes.rds", sep=""))
+  
+  
+  de_genes$diffexpressed <- "No"
+de_genes$diffexpressed[de_genes$avg_log2FC > 0.5 & de_genes$p_val_adj < 0.05] <- "Up"
+de_genes$diffexpressed[de_genes$avg_log2FC < -0.5 & de_genes$p_val_adj < 0.05] <- "Down"
+de_genes$delabel <- NA
+de_genes$delabel[de_genes$diffexpressed != "No"] <- de_genes$gene[de_genes$diffexpressed != "No"]
+
+p <- ggplot(data=de_genes, 
+            aes(x=avg_log2FC, 
+                y=-log10(p_val_adj), 
+                col=diffexpressed, 
+                label=delabel)) +
+  geom_text_repel(
+    size = 2.5,
+    point.padding = 0, 
+    min.segment.length = 0, 
+    max.time = 1, max.iter = 1e5, 
+    box.padding = 0.1
+  ) +
+  geom_point(size = 2.5, 
+             alpha = 0.4) +
+  xlim(-3,3) +
+  ylim(c(0, 350)) +
+  theme_light()+
+  scale_color_manual(values=c("#0570b0", "gray60", "#d7301f")) +
+  geom_vline(xintercept=c(-0.5, 0.5), linetype = "dashed", col="grey60") +
+  geom_hline(yintercept=-log10(0.05),  linetype = "dashed", col="grey60")+
+  theme(legend.position = "none",
+        legend.key.size = unit(0.3, "cm")) 
+
+print(p)
+
+pdf(paste(out.dir, "/ALK1/", "volcanoplot_", clusters[i], "_ctrl_vs_pah.pdf", sep = ""), width = 5, height = 5, useDingbats = F)
+print(p)
+dev.off()
+  
+}
+
+## Save DE results in a joined table
+joined_res = list.files(res.dir, pattern="*_wilcox.txt", full.names=TRUE)
+joined_res
+joined_res = plyr::ldply(joined_res, read.delim)
+View(joined_res)
+write.table(joined_res,file=paste(res.dir,"/","DE_ctrl.vs.pah_",test.use,".tsv",sep=""),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
+
+```
+
+
+### Barplot
+
+```{r fig.width=5, fig.height=5}
+res.dir <- paste(out.dir, "ALK1", sep = "/")
+
+# Read DE PAH vs. CTRL results from Seurat
+markers <- read.delim(paste(out.dir, "markers", "DE_CTRL_vs_PAH", "DE_ctrl.vs.pah_wilcox.tsv", sep = "/"), 
+                      sep = "\t", header = TRUE, row.names = NULL) 
+
+# Prepare variable of the unique cell type
+cell_types <- unique(markers$cluster)
+
+for(i in 1:length(cell_types)){
+  cell_type <- cell_types[i]
+  DEsub <- data.frame()
+  DEsub <- markers[markers$cluster==cell_type,]
+  
+  # Unique markers per celltype
+  DEsub <- DEsub[order(DEsub$p_val_adj <= 0.05),] 
+  uniq_genes <-  DEsub %>% group_by(gene) %>%  dplyr::summarize(n=n()) %>%  dplyr::filter(n==1)
+  DEsub <-  DEsub[DEsub$gene %in% uniq_genes$gene,]
+  rownames(DEsub) <- NULL
+
+  # Prepare avg logFC matrix
+  mat <- DEsub %>% 
+    tibble::column_to_rownames("gene") %>%
+    dplyr::select(avg_log2FC) %>%
+    as.matrix()
+  
+  if(length(DEsub$gene) > 1){
+    # Plot DE markers
+    p <- plot_top_features(mat, n_top = 10) +
+      labs(title = paste("DE Genes CTRL vs. PAH (Wilcox) "," \n", cell_type, sep = " "), x = "Avg_log2FC", y = " ")
+    print(p)
+    pdf(paste(res.dir, "/", "barplot_", cell_type, "_ctrl_vs_pah.pdf", sep = ""), width = 5, height = 5, useDingbats = F)
+    print(p)
+    dev.off()
+    
+  }
+}
+
+```
+
+### EdgeR Pseudobulk 
+
+#### CTR vs PAH (ALK1 Low et ALK1 high)
+
+```{r}
+Seurat::Idents(clean) <- "ALK1"
+sub <- subset(clean, idents = c("ALK1 High", "ALK1 Low"))
+Seurat::Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH", "CTRL"))
+metadata <- data.frame(matrix(NA, nrow = dim(sub@meta.data)[1], ncol = 3))
+rownames(metadata) <- rownames(sub@meta.data)
+colnames(metadata) <- c("cell_type","replicate","label")
+Seurat::Idents(sub) <- "ALK1"
+metadata$cell_type <- factor(gsub(" ", "_", sub@active.ident))
+metadata$replicate <- factor(sub@meta.data$sample)
+metadata$label <- factor(sub@meta.data$condition, levels = c("CTRL", "PAH"))
+Seurat::DefaultAssay(sub) <- "RNA"
+sub <- Seurat::NormalizeData(sub)
+#sub@assays$RNA@data
+counts <- Seurat::GetAssayData(sub, assay = "RNA", slot = "data")
+# de_method = "limma"
+# de_type = "trend"
+de_method = "edgeR"
+de_type = "LRT"
+DE = Libra::run_de(counts, meta=metadata, de_family = 'pseudobulk', de_method = de_method, de_type = de_type)
+head(DE)
+matrices = Libra::to_pseudobulk(counts, meta = metadata)
+saveRDS(DE, paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "de.rds", sep = "/"))
+saveRDS(matrices, paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "matrices.rds", sep = "/"))
+
+```
+
+
+
+##### Maplot and Heatmap
+
+```{r fig.width=10, fig.height=5}
+# Define colors
+myPalette <- list()
+myPalette$sampleColor <- setNames(
+colorRampPalette(RColorBrewer::brewer.pal(n = 11, name = 'RdBu'))(10),
+  #viridis::viridis(14),
+  unique(sub@meta.data$sample)
+)
+
+
+myPalette$myCondColor <- setNames(
+  c("#d7301f", "#0570b0"),
+  c("PAH","CTRL")
+)
+
+ann_colors = list(sample = myPalette$sampleColor, condition = myPalette$myCondColor)
+
+
+# Load data
+DE <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "de.rds", sep = "/"))
+matrices <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "matrices.rds", sep = "/"))
+plot_list=list()
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+    cell_type <- cell_types[i]
+    DEsub <- DE[DE$cell_type==cell_type,]
+    sig_res <- dplyr::filter(DEsub, p_val <= 0.05) %>% dplyr::arrange(p_val)
+    sig_genes <- sig_res %>% dplyr::arrange(p_val) %>% dplyr::pull(gene) %>% head(n=50)
+    
+    if(length(sig_genes) > 1){
+    
+        # near here a log2(CPM)
+        normalized_counts <- log(edgeR::cpm(matrices[[cell_type]])+1,2)
+        df <- rowMeans(normalized_counts)
+        df <- as.data.frame(df)
+        
+        df$gene <- rownames(df)
+        colnames(df) <- c("baseMean","gene")
+        m <- merge(DEsub, df, on='gene')
+        maplot <- m[, c("baseMean", "avg_logFC", "p_val")]
+        rownames(maplot) <- m$gene
+        colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+        
+        y=ggpubr::ggmaplot(maplot, 
+                             main = "",
+                             fdr = 0.05, 
+                             fc = 0.5,
+                             size = 2.0,
+                             #palette = c("#f77f00", "#90be6d", "#d3d3d3"),
+                             #palette = c("#ae2012","#d3d3d3", "#005f73"),
+                             genenames = as.vector(rownames(maplot)),
+                             legend = "right", 
+                             top = 50,
+                             alpha = 0.5,
+                             select.top.method = c("padj"),
+                             font.label = c("bold", 8), 
+                             label.rectangle = FALSE,
+                             font.legend = c("bold", 8), 
+                             font.axis = c("bold", 8), 
+                             font.main = c("bold", 24, "#ba181b"), 
+                             xlab = "Average epression",
+                             ylab = "log2(FoldChange)",
+                             ggtheme = ggplot2::theme_bw(base_line_size = 0))
+        
+
+        meta <- as.data.frame(stringr::str_split_fixed(colnames(normalized_counts), ":", 2))
+        rownames(meta) <- colnames(normalized_counts)
+        colnames(meta) <- c("sample","condition")
+        x <- pheatmap::pheatmap(normalized_counts[sig_genes,],
+                     annotation_col = meta,
+                     annotation_colors = ann_colors,
+                     #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50),
+                     color = colorRampPalette(c("purple", "black", "yelLow"))(100),
+                     fontsize = 8,
+                     show_colnames = FALSE,
+                     show_rownames = TRUE,
+                     cluster_cols = TRUE,
+                     cluster_rows = TRUE)
+      p <- print(cowplot::plot_grid(y, x[[4]], labels = cell_type))
+
+pdf(file=paste(out.dir, "/markers/", "DE_pseudobulk/", "ALK1.High.vs.Low/", cell_type, "_",de_method,"_",de_type ,"_de_pb_ctrl_vs_pah.pdf", sep = ""), width = 10, height = 6, useDingbats = F)
+print(p)
+dev.off()
+
+    }
+}
+
+```
+
+##### Select the consistant markers between wilcox and DE_pseudobulk DE PAH vs CTRL
+
+```{r fig.width=10, fig.height=8}
+res.dir <- paste(out.dir, "markers", "DE_pseudobulk", sep = "/")
+DE <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "de.rds",  sep = "/"))
+matrices <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.High.vs.Low", "matrices.rds", sep = "/"))
+markers <- read.delim(paste(out.dir, "markers", "DE_CTRL_vs_PAH", "DE_ctrl.vs.pah_wilcox.tsv", sep = "/"), sep = "\t", header = TRUE)
+
+cell_type <- names(matrices)
+nb <- length(cell_type)
+
+for(i in 1:nb){
+# Print cell type
+print(cell_type[i])
+
+# Filter gene expressed in all CTRL samples
+prc_pb_gene <- rownames(select(matrices[[cell_type[i]]],contains("CTRL")) %>% 
+  filter_at(vars(starts_with("CTRL")), all_vars(. != 0))
+  )
+
+# Filter gene expressed in all PAH samples
+pah_pb_gene <- rownames(select(matrices[[cell_type[i]]],contains("PAH")) %>% 
+  filter_at(vars(starts_with("PAH")), all_vars(. != 0))
+  )
+
+
+# Filter the significant markers (p_val_adj <= 0.05)
+DEsub <- DE[DE$cell_type==cell_type[i],]
+sig_pb_res <- dplyr::filter(DEsub, p_val_adj <= 0.05) %>% 
+  dplyr::arrange(p_val_adj)
+DE_validated <- subset(sig_pb_res, gene %in% c(prc_pb_gene, pah_pb_gene))
+
+# Subset cell_type[i] markers from Seurat DE wilcox results
+markers_sub <- subset(markers, cluster == cell_type[i])
+pb_in_wilcox <- subset(DE_validated, gene %in% markers_sub$gene)
+
+## Write table for true differentially expressed genes validated in both Seurat DE wilcox and edgeR DE DE_pseudobulk results
+test.use <- "wilcox"
+pb <- "pb_edgeR"
+
+write.table(wilcox_in_pb,file=paste(res.dir,"/",cell_type[i],"_CTRL_vs_PAH_DE_genes_",test.use,"_in_",pb, ".txt",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+write.table(pb_in_wilcox,file=paste(res.dir,"/",cell_type[i],"_CTRL_vs_PAH_DE_genes_",pb,"_in_",test.use, ".txt",sep=""),sep="\t",quote=FALSE,row.names=TRUE,col.names=TRUE)
+
+## Add DE for this cell type to the UpsetR list
+upset_Rlist_DE_genes <- list()
+  upset_Rlist_DE_genes[[cell_type[i]]] <- c(pb_in_wilcox$gene)
+  saveRDS(upset_Rlist_DE_genes, file=paste0(res.dir, "/", cell_type[i], "_upset_de_genes.rds", sep=""))
+}
+
+```
+
+
+
+
+#### CTRL vs PAH (ALK1 High+BMP9 and ALK1 Low+BMP9)
+
+```{r}
+Idents(clean) <- "ALK1"
+sub <- subset(clean, idents = c("ALK1 High+BMP9", "ALK1 Low+BMP9"))
+Idents(sub) <- "condition"
+sub <- subset(sub, idents = c("PAH+BMP9", "CTRL+BMP9"))
+metadata <- data.frame(matrix(NA, nrow = dim(sub@meta.data)[1], ncol = 3))
+rownames(metadata) <- rownames(sub@meta.data)
+colnames(metadata) <- c("cell_type","replicate","label")
+Seurat::Idents(sub) <- "ALK1"
+metadata$cell_type <- factor(gsub(" ", "_", sub@active.ident))
+metadata$replicate <- factor(sub@meta.data$sample)
+metadata$label <- factor(sub@meta.data$condition, levels = c("CTRL+BMP9", "PAH+BMP9"))
+Seurat::DefaultAssay(sub) <- "RNA"
+sub <- Seurat::NormalizeData(sub)
+#sub@assays$RNA@data
+counts <- Seurat::GetAssayData(sub, assay = "RNA", slot = "data")
+# de_method = "limma"
+# de_type = "trend"
+de_method = "edgeR"
+de_type = "LRT"
+DE = Libra::run_de(counts, meta=metadata, de_family = 'pseudobulk', de_method = de_method, de_type = de_type)
+head(DE)
+matrices = Libra::to_pseudobulk(counts, meta = metadata)
+saveRDS(DE, paste(out.dir, "markers", "DE_pseudobulk", "ALK1.BMP9.High.vs.Low", "de.rds", sep = "/"))
+saveRDS(matrices, paste(out.dir, "markers", "DE_pseudobulk", "ALK1.BMP9.High.vs.Low", "matrices.rds", sep = "/"))
+
+```
+
+
+
+##### Maplot and Heatmap
+
+```{r fig.width=10, fig.height=5}
+# Define colors
+
+myPalette <- list()
+myPalette$sampleColor <- setNames(
+colorRampPalette(RColorBrewer::brewer.pal(n = 11, name = 'RdBu'))(10),
+  #viridis::viridis(14),
+  unique(sub@meta.data$sample)
+)
+
+myPalette$myCondColor <- setNames(
+  c("#d7301f", "#0570b0"),
+  c("PAH+BMP9","CTRL+BMP9")
+)
+ann_colors = list(sample = myPalette$sampleColor, condition = myPalette$myCondColor)
+
+
+DE <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.BMP9.High.vs.Low", "de.rds", sep = "/"))
+matrices <- readRDS(paste(out.dir, "markers", "DE_pseudobulk", "ALK1.BMP9.High.vs.Low", "matrices.rds", sep = "/"))
+plot_list=list()
+cell_types <- unique(DE$cell_type)
+
+for(i in 1:length(cell_types)){
+    cell_type <- cell_types[i]
+    DEsub <- DE[DE$cell_type==cell_type,]
+    sig_res <- dplyr::filter(DEsub, p_val <= 0.05) %>% dplyr::arrange(p_val)
+    sig_genes <- sig_res %>% dplyr::arrange(p_val) %>% dplyr::pull(gene) %>% head(n=50)
+    
+    if(length(sig_genes) > 1){
+    
+        # near here a log2(CPM)
+        normalized_counts <- log(edgeR::cpm(matrices[[cell_type]])+1,2)
+        df <- rowMeans(normalized_counts)
+        df <- as.data.frame(df)
+        
+        df$gene <- rownames(df)
+        colnames(df) <- c("baseMean","gene")
+        m <- merge(DEsub, df, on='gene')
+        maplot <- m[, c("baseMean", "avg_logFC", "p_val")]
+        rownames(maplot) <- m$gene
+        colnames(maplot) <- c("baseMean", "log2FoldChange", "padj")
+        
+        y=ggpubr::ggmaplot(maplot, 
+                             main = "",
+                             fdr = 0.05, 
+                             fc = 0.5,
+                             size = 2.0,
+                             #palette = c("#f77f00", "#90be6d", "#d3d3d3"),
+                             #palette = c("#ae2012","#d3d3d3", "#005f73"),
+                             genenames = as.vector(rownames(maplot)),
+                             legend = "right", 
+                             top = 50,
+                             alpha = 0.5,
+                             select.top.method = c("padj"),
+                             font.label = c("bold", 8), 
+                             label.rectangle = FALSE,
+                             font.legend = c("bold", 8), 
+                             font.axis = c("bold", 8), 
+                             font.main = c("bold", 24, "#ba181b"), 
+                             xlab = "Average epression",
+                             ylab = "log2(FoldChange)",
+                             ggtheme = ggplot2::theme_bw(base_line_size = 0))
+        
+
+        meta <- as.data.frame(stringr::str_split_fixed(colnames(normalized_counts), ":", 2))
+        rownames(meta) <- colnames(normalized_counts)
+        colnames(meta) <- c("sample","condition")
+        x <- pheatmap::pheatmap(normalized_counts[sig_genes,],
+                     annotation_col = meta,
+                     annotation_colors = ann_colors,
+                     #color=colorRampPalette(c("#005f73", "white", "#ae2012"))(50),
+                     color = colorRampPalette(c("purple", "black", "yelLow"))(100),
+                     fontsize = 8,
+                     show_colnames = FALSE,
+                     show_rownames = TRUE,
+                     cluster_cols = TRUE,
+                     cluster_rows = TRUE)
+      p <- print(cowplot::plot_grid(y, x[[4]], labels = cell_type))
+
+pdf(file=paste(out.dir, "/markers/", "DE_pseudobulk/", "ALK1.BMP9.High.vs.Low/", cell_type, "_",de_method,"_",de_type ,"_de_pb_ctrl_vs_pah.pdf", sep = ""), width = 10, height = 6, useDingbats = F)
+print(p)
+dev.off()
+
+    }
+}
+
+```
+
+
+
+
+
+
+
+
+
